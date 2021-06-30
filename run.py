@@ -306,14 +306,21 @@ def analysis(datanames, multiple=False):
             # preprocess.convert_trialstocsv(dn); return            # use this once to get the trials_good_start.csv for the mouse
 
             # use this to export spike times in a simple format without 
-            # preprocess.loaddatamouse(dn,T,continuous_method,recalculate=True,exportspiketrains=True)
+            # preprocess.loaddatamouse(dn,T,continuous_method,recalculate=True,exportspiketrains='save')
 
 
             # loads or creates spike counts, needed for all processes below
             # normalize True for decoding, False for firing rate and raw PCA
-            # recalculate True to create neo format cache data files with smoothed inst.fr, False to reload
-            block = preprocess.loaddatamouse(dn,T,continuous_method,normalize=True,recalculate=False)
+            # recalculate True to create neo format cache data files with smoothed inst.fr, False to reload neo format
             
+            # calculate and cache in neo format (need normalized and non-normalized runs as well):
+            block = preprocess.loaddatamouse(dn,T,continuous_method,normalize=True,recalculate=True,exportspiketrains='load')
+            
+            # once neo files are present, only need the following line:
+            # block = preprocess.loaddatamouse(dn,T,continuous_method,normalize=True,recalculate=False)
+            
+
+
             # export trial cut spike trains from the converted neo format:
             # preprocess.exportspiketrainsfromneo(dn,block)
             

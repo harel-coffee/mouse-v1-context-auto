@@ -91,22 +91,31 @@ def loaddatamouse(sessionname='',T=None,continuous_method='count',normalize=True
         
         ES,NR,CT = mat2panda(sessionname)
         if continuous_method[:3]=='ks2' or continuous_method[:3]=='ks3':        # for the Kilosort2,3: this will hold a # SUA list of spike times
-            spiketrains,depths,templates = ksphy2neospiketrain(dn=sessionname,T=T)
-            n_neurons = len(spiketrains)
-                
-            #placeholder of cell identities until calculated
-            # CT = {'idents':pd.Series(depths),'waveforms':pd.Series(-np.ones(n_neurons)) }
-            # neph.identifylayers(block,T,depths)
-            CT = {'depths':np.array(depths),\
-                  'waveforms':templates,\
-                  'layers':np.array(depths)<200,\
-                  'celltypes':neph.identifycelltype(n_neurons,T,templates) }
 
-            if exportspiketrains:  # choose this func argument if want to just export list of all spikes without trial segments; it will quit the function afterwards
-                print('exporting raw spiketrains')
-                pickle.dump(spiketrains,open(cacheprefix+'phys/spiketrains-%s-%s.pck'%(sessionname,continuous_method),'wb'))
-                pickle.dump(CT,open(cacheprefix+'phys/cellinfo-%s-%s.pck'%(sessionname,continuous_method),'wb'))
-                return  # don't start making the neo.analogsignals, this is just an export to file in a simple format
+            if exportspiketrains=='load':    # reload from simple unit list of list of spikes saved with exportspiketrains = 'save'
+                spiketrains = pickle.load(open(cacheprefix+'phys/spiketrains-%s-%s.pck'%(sessionname,continuous_method),'rb'))
+                CT = pickle.load(open(cacheprefix+'phys/cellinfo-%s-%s.pck'%(sessionname,continuous_method),'rb'))
+                n_neurons = len(spiketrains)
+
+            else:     # generate spiketrains and metadata from from phy2 export files
+
+                spiketrains,depths,templates = ksphy2neospiketrain(dn=sessionname,T=T)
+                n_neurons = len(spiketrains)
+                    
+                #placeholder of cell identities until calculated
+                # CT = {'idents':pd.Series(depths),'waveforms':pd.Series(-np.ones(n_neurons)) }
+                # neph.identifylayers(block,T,depths)
+                CT = {'depths':np.array(depths),\
+                    'waveforms':templates,\
+                    'layers':np.array(depths)<200,\
+                    'celltypes':neph.identifycelltype(n_neurons,T,templates) }
+
+                if exportspiketrains=='save':  # choose this func argument if want to just export list of all spikes without trial segments; it will quit the function afterwards
+                    print('exporting raw spiketrains')
+                    pickle.dump(spiketrains,open(cacheprefix+'phys/spiketrains-%s-%s.pck'%(sessionname,continuous_method),'wb'))
+                    pickle.dump(CT,open(cacheprefix+'phys/cellinfo-%s-%s.pck'%(sessionname,continuous_method),'wb'))
+                    return  # don't start making the neo.analogsignals, this is just an export to file in a simple format
+
 
         else:      # instfr is JRClust, and NR holds 0s and 1s, so we will need to find timings with np.where later
             n_neurons = NR.shape[1]

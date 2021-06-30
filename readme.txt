@@ -23,7 +23,7 @@ The following folder structure is necessary to be created before being able to c
 where * should be inferred from the recalculate = 1 branches of the calculation functions inside each calculation file
 
 
-The input data structures are from phy2 via various JRClust and kilosort versions.
+The raw input data structures are from .mat and phy2 via various JRClust and kilosort versions.
 
 The internal data structure is neo:
 https://neo.readthedocs.io/en/stable/install.html
