@@ -31,7 +31,6 @@ import neo
 
 import neurophysiology as neph
 import neurodiscover as nedi
-import neurobayesian as neba
 
 import figs
 
@@ -53,11 +52,11 @@ globalsave = 0
 
 
 # kilosort3 
-continuous_method = 'ks3ifr'; binsize = 100*pq.ms     # dt 10 ms, bin 100 ms
+# continuous_method = 'ks3ifr'; binsize = 100*pq.ms     # dt 10 ms, bin 100 ms
 
 
 # kilosort2
-# continuous_method = 'ks2ifr'; binsize = 100*pq.ms     # dt 10 ms, bin 100 ms
+continuous_method = 'ks2ifr'; binsize = 100*pq.ms     # dt 10 ms, bin 100 ms
 # continuous_method = 'ks2count'; binsize = 10*pq.ms     # dt 1 ms, bin 1 ms      for DT014
 # continuous_method = 'ks2count'; binsize = 1*pq.ms     # dt 1 ms, bin 1 ms      for DT014
 
@@ -122,7 +121,7 @@ cacheprefix = '../cache/'
 resultpathprefix = '../results/'
 # resultpathseries = 'phys/'
 # resultpathseries = 'firingrate/'
-# resultpathseries = 'differences,temporal/'
+resultpathseries = 'differences,temporal/'
 # resultpathseries = 'differences,count/'
 # resultpathseries = 'runspeed,temporal/'
 # resultpathseries = 'subspaces/'
@@ -135,7 +134,7 @@ resultpathprefix = '../results/'
 # resultpathseries = 'pca/'
 # resultpathseries = 'actionreward/'
 # resultpathseries = 'tribe/'
-resultpathseries = 'anime/'
+# resultpathseries = 'anime/'
 
 
 resultpath = resultpathprefix + resultpathseries

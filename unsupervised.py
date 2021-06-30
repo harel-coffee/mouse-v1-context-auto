@@ -694,4 +694,4 @@ def variationallatentgaussianprocess(dn,block,n_factors=5):
 
 
 if __name__ == '__main__':
-    print('and the little beasts are coming...')
+    print('unsupervised methods')

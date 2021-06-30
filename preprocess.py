@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Mar 21 15:18:27 2019
-
-@author: mahajnal
-"""
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -33,7 +26,6 @@ import neo
 
 # import preprocess as preprocess
 import neurophysiology as neph
-import neurobayesian as neba
 
 
 
@@ -1760,4 +1752,4 @@ def refoldlayerindices(ix1,ix2):
 
         
 if __name__ == '__main__':
-    print('here come the monks...')
+    print('preprocess main')

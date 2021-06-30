@@ -15,44 +15,12 @@ from physiology import *
 from decodersubspace import *
 from unsupervised import *
 
-from glmpredictneural import *
-
-from memorymodels import *
-from spikemodels import *
-
 from aggregateallmice import *
 
     
 
 
 
-
-
-
-def tests(dn,block):
-    
-    fig,ax = plt.subplots(1,3,figsize=(32,8))
-    
-    for k in [0,1,2]:
-        axs = ax[k]
-        axs.plot(block.segments[k+30].analogsignals[0][1500:1600,:])
-        print(block.segments[k+30].analogsignals[0][1500:1510,:])
-    
-    return
-
-    trialnum = 30+5
-    neuron = 8
-    bins = 100
-    spiketrain = np.array(block.segments[trialnum].spiketrains[neuron])
-    
-    spikecounts = np.array([ np.sum((spiketrain>t0) & (spiketrain<t0+bins)) for t0 in np.arange(0,3000,bins) ])
-    
-    print(dn,'neuron %d, trial: %d'%(neuron,trialnum))
-    print(spiketrain)
-    print(spikecounts)
-
-
-# ***************************************************************************
 
 
 
@@ -130,7 +98,7 @@ def select_data():
     # datanames = ['AC003']
     # datanames = ['AC004']
     # datanames = ['AC006']
-    datanames = ['AC007']
+    # datanames = ['AC007']
     
     # # datanames = ['AC008']
     # # datanames = ['AC009']
@@ -144,7 +112,7 @@ def select_data():
     
     
     # all
-    # datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']
+    datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']
     
     # correct runspeed:
     # datanames = ['ME110','ME113','DT009','DT014','DT017','DT030','DT031','DT032']
@@ -255,13 +223,13 @@ def analysis(datanames, multiple=False):
 
         # aggregatemice_relevantirrelevant_behaviour(datanames)
         # aggregatemice_relevantirrelevant_singletrialneuralbehaviour(datanames)
-        aggregatemice_subspaces_timeresolved_behaviour_ACC(datanames)
+        # aggregatemice_subspaces_timeresolved_behaviour_ACC(datanames)
 
 
 
         # cluster_celltypes(datanames)
 
-        # aggregatemice_decoderaccuracyaverages(datanames)
+        aggregatemice_decoderaccuracyaverages(datanames)
         
         
         # decoderstobehaviouralperformance(datanames);
@@ -337,11 +305,13 @@ def analysis(datanames, multiple=False):
             dn = datanames
             # preprocess.convert_trialstocsv(dn); return            # use this once to get the trials_good_start.csv for the mouse
 
-            # use this to export spike times in a simple format
+            # use this to export spike times in a simple format without 
             # preprocess.loaddatamouse(dn,T,continuous_method,recalculate=True,exportspiketrains=True)
 
 
-            # loads or creates spike counts, needed for all processes below:
+            # loads or creates spike counts, needed for all processes below
+            # normalize True for decoding, False for firing rate and raw PCA
+            # recalculate True to create neo format cache data files with smoothed inst.fr, False to reload
             block = preprocess.loaddatamouse(dn,T,continuous_method,normalize=True,recalculate=False)
             
             # export trial cut spike trains from the converted neo format:
@@ -367,7 +337,7 @@ def analysis(datanames, multiple=False):
 
 
 
-            # compareacrossconditions_maxnormdiffdecoder(dn,block,examine='allexpcond')
+            compareacrossconditions_maxnormdiffdecoder(dn,block,examine='allexpcond')
             # compareacrossconditions_maxnormdiffdecoder(dn,block,examine='gonogo')
             # compareacrossconditions_maxnormdiffdecoder(dn,block,examine='attendignore')
             # compareacrossconditions_maxnormdiffdecoder(dn,block,examine='character')
@@ -434,7 +404,7 @@ def analysis(datanames, multiple=False):
 
 
             # subspaces_behaviour_ACC(dn,block)
-            subspaces_timeresolved(dn,block)
+            # subspaces_timeresolved(dn,block)
 
 
 
