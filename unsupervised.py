@@ -11,7 +11,7 @@ from config import *
 
 import preprocess
 
-
+# from dPCA import dPCA
 
 
 
@@ -264,7 +264,7 @@ def tcafactors(dn,block):
     
     
     
-        save = 1
+        save = 0 or globalsave
         if save:
             fig.savefig(resultpath+'%s-zsc,stim+bhv+r_l%d,dt%dms,window%dms_%s'%(method,R,T['dt'],T['bin'],dn) + '.png')
     
@@ -295,7 +295,7 @@ def tcafactors(dn,block):
             if nct==0: axs.set_ylabel('trajectory tensor mode coeff.')
 #        fig.suptitle(dn)
         
-        save = 0
+        save = 0 or globalsave
         if save:
             fig.savefig(resultpath+'3A-%s-tca,VACC-trajectories'%dn+ext)
 
@@ -303,6 +303,119 @@ def tcafactors(dn,block):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# *************************************************************************
+#                               variance explained, PCA variations
+
+
+
+
+
+
+
+def variancemethods_dPCA(dn,block):
+    
+    # X - A multidimensional array containing the trial-averaged data. E.g. X[n,t,s,d] could correspond to the
+    # mean response of the n-th neuron at time t in trials with stimulus s and decision d.
+    # The observable (e.g. neuron index) needs to come first.
+
+    blv,bla = preprocess.getorderattended(dn)
+    comparisongroups  = [ \
+                          [ [ [2,4],[45],    [] ], [ [2,4],[135],     [] ] ],\
+                          [ [ [2,4],  [],[5000] ], [ [2,4],   [],[10000] ] ],\
+                          [ [  blv,  [],[] ],   [ bla,   [], [] ] ],\
+                        ]
+
+    taskaspects = ['visual','audio','context']
+    # classnames = [['45°','135°'],['5kHz','10kHz'],['attend visual','attend audio'],['lick','withhold lick']]
+    classnames = ['45°','135°','5kHz','10kHz','attend visual','attend audio','lick','withhold lick']
+    colors = ['navy','darkgreen','mediumvioletred']
+
+
+    n_neurons = block.segments[0].analogsignals[0].shape[1]
+    times = block.segments[0].analogsignals[0].times
+    n_components = 4
+
+    responses = []
+    for cx,comparison in enumerate(taskaspects):
+        responses_c = preprocess.collect_stimulusspecificresponses(block,comparisongroups[cx],correctonly=1)
+        responses_i = preprocess.collect_stimulusspecificresponses(block,comparisongroups[cx],erroronly=1)
+        # now create the stimulus modality specific 2 x 2 (stim,choice) matrices, and extend over the "stimulus" dimension
+        responses.extend(  [ [ np.array(responses_c[0]).mean(0), np.array(responses_i[0]).mean(0) ],\
+                             [ np.array(responses_c[1]).mean(0), np.array(responses_i[1]).mean(0) ]       ]   )
+    responses = np.array(responses)
+    # shuffle the responses shape, so that it will become (neurons,timecourse,stimuli,decision) as required for dPCA:
+    responses = np.moveaxis(responses,[0,1,2,3],[2,3,1,0])
+    print(responses.shape, '(neurons,timecourse,stimuli,decision)')
+    responses = responses - responses.mean((1,2,3))[:,np.newaxis,np.newaxis,np.newaxis]       # center data for each neurons
+
+
+
+    model = dPCA.dPCA(labels='ntsd', n_components=n_components)#, regularizer='auto')
+    Z = model.fit_transform(responses)
+    print(Z.keys())
+    print(np.mean(Z['ts']))
+    print('Z shape',Z['t'].shape,Z['s'].shape,Z['ts'].shape)
+    
+    
+    
+    
+    fig,ax = plt.subplots(n_components, 3,  figsize=(3*8,n_components*8))
+    for mx in range(n_components):
+        for sx in range(6):
+            for dx in range(2):
+                ls = ['-','--'][dx]
+                axs = ax[mx,0]
+                axs.plot(times, Z['t'][mx,:,sx,dx], ls, color=colors[sx//2], alpha=1-0.5*dx, label=classnames[sx])
+                
+                axs = ax[mx,1]
+                axs.plot(times, Z['s'][mx,:,sx,dx], ls, color=colors[sx//2], alpha=1-0.5*dx, label=classnames[sx])
+                
+                axs = ax[mx,2]
+                axs.plot(times, Z['ts'][mx,:,sx,dx], ls, color=colors[sx//2], alpha=1-0.5*dx, label=classnames[sx])
+
+
+        for hx in range(3):
+            axs = ax[mx,hx]
+            if mx==0: axs.set_title(['time components','stimulus components','time+stim interactions'][hx])
+            axs.set_xlim(-1300,4300)
+            figs.plottoaxis_stimulusoverlay(axs,T)
+            figs.plottoaxis_chancelevel(axs,0)
+            # axs.set_ylim(-10,10)
+
+
+
+
+    # create 
+
+    
+    return
 
 
 
@@ -684,7 +797,7 @@ def variationallatentgaussianprocess(dn,block,n_factors=5):
             fig.suptitle(dn+' vLGP, trial averaged latents')
                 
             
-            save = 1 or globalsave
+            save = 0 or globalsave
             if save:
                 fig.savefig(resultpath+'vlgp,variables,averaged-f%d-%s'%(n_factors,dn)+ext)
 
@@ -693,5 +806,45 @@ def variationallatentgaussianprocess(dn,block,n_factors=5):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 if __name__ == '__main__':
-    print('unsupervised methods')
+    print('and the little beasts are coming...')

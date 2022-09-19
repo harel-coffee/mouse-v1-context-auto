@@ -6,9 +6,12 @@ Created on Fri Oct  2 10:27:02 2020
 @author: mahajnal
 """
 
+from socket import AF_UNIX
 from matplotlib import animation
 from config import *
 import preprocess
+import physiology
+
 
 
 def compareacrossconditions_maxnormdiffdecoder(dn,block,examine='allexpcond'):
@@ -278,7 +281,7 @@ def compareacrossconditions_maxnormdiffdecoder(dn,block,examine='allexpcond'):
 def decoder_celltypes(dn,block):
 
     recalculate = 0 or globalrecalculate
-    doplot = 1
+    doplot = 0
 
     width = 50*pq.ms
 
@@ -387,7 +390,8 @@ def angles_between_decoders(dn,block):
 
     taskaspects = ['visual','audio','context','choice']
     # taskaspects = ['context','choice','choice,av','choice,aa']
-    # taskaspects = ['visual','audio','context','choice','choice,av','choice,aa']
+    taskaspects = ['visual','audio','context','choice','choice,av','choice,aa']
+
     
     # find the decision normal vectors
     c_db = []          # vector components (coefficients) of the decision normals in the activity space
@@ -399,7 +403,8 @@ def angles_between_decoders(dn,block):
         numsignal = 7       # normal non-cross decoder
         wx = int((len(acrossdecoder)-numsignal)/n_neuron)     
         c_db.append(  np.reshape(np.array(acrossdecoder[numsignal:]), (wx,n_neuron,acrossdecoder[numsignal].shape[0],acrossdecoder[numsignal].shape[1]) ).mean(axis=0)    )
-            
+
+
     c_db = np.array(c_db) # [{v,a,cx,ch},neurons,trajectory,stats]
     
     n_trajectory = c_db.shape[2]
@@ -460,7 +465,7 @@ def angles_between_decoders(dn,block):
 
     
 
-    if doplot and 1:
+    if doplot and True:
         fig,ax = plt.subplots(len(taskaspects),len(taskaspects),figsize=(8*len(taskaspects),8*len(taskaspects)))
         
         
@@ -501,7 +506,7 @@ def angles_between_decoders(dn,block):
 
 
     
-    if doplot and 1:
+    if doplot and True:
         fig,ax = plt.subplots(1,len(taskaspects),figsize=(11*len(taskaspects),8*1))
         
         
@@ -536,6 +541,134 @@ def angles_between_decoders(dn,block):
             fig.savefig(resultpath+'angles,alongDBNVs-VACC3_%s-%dms_%s'%(continuous_method,T['bin'].magnitude,dn)+ext)
     
     
+
+
+
+
+
+
+
+
+
+
+
+
+def angles_between_decoders_motion(dn,block):
+    if dn[:3]!='MT0': print(dn,' does not have video motion.'); return
+
+    doplot = 1 or globaldoplot
+    dump = 1
+
+    _, timestampsfps = physiology.getmovementpctimecourses(dn)
+
+    n_neuron = block.segments[0].analogsignals[0].shape[1]
+    fps = T['videofps']
+
+    taskaspects = ['visual','audio','context','choice']
+    # taskaspects = ['context','choice','choice,av','choice,aa']
+    # taskaspects = ['visual','audio','context','choice','choice,av','choice,aa']
+
+    
+    # find the decision normal vectors
+    c_db = []          # vector components (coefficients) of the decision normals in the activity space
+    for cx,comparison in enumerate(taskaspects):
+
+        acrossdecoder = pickle.load(open(cacheprefix+'continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
+
+        numsignal = 7       # normal non-cross decoder
+        wx = int((len(acrossdecoder)-numsignal)/n_neuron)
+        acrossdecoder = np.reshape(np.array(acrossdecoder[numsignal:]), (wx,n_neuron,acrossdecoder[numsignal].shape[0],acrossdecoder[numsignal].shape[1]) ).mean(axis=0)
+        acrossdecoder = np.hstack([acrossdecoder, acrossdecoder[:,-4:,:]])
+        # reduce sample rate to video fps
+        resampleperiod = np.int16(1000/T['dt']/fps)
+        acrossdecoder_downsampled = np.zeros( (acrossdecoder.shape[0],len(timestampsfps),acrossdecoder.shape[2]) )
+        for j in range(acrossdecoder.shape[0]):
+            for k in range(acrossdecoder.shape[2]):
+                aux = pd.Series(acrossdecoder[j,:,k]).rolling(resampleperiod).mean().values[::resampleperiod]
+                acrossdecoder_downsampled[j,:,k] = aux
+    
+        c_db.append(acrossdecoder_downsampled)
+    c_db = np.stack(c_db, axis=3)  # (neurons,timestamps,stats,tasks)
+
+
+    # load the fitted regression coefficients for videomotion pcs, and move to correct axes used here
+    accuraciesmotion,coefsmotion = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-decoder,neuraltomotion,timecourse_%s.pck'%dn, 'rb'))
+    c_db_motion = np.moveaxis(coefsmotion, [0,1,2,3], [1,3,0,2])
+    # (neurons,timestamps,stats,pcs)      here, the pcs are individual targets, to be compared separately
+    n_pcs = c_db_motion.shape[3]
+    print(c_db.shape, c_db_motion.shape)
+
+
+
+
+
+    # calculate angles
+    n_trajectory = len(timestampsfps)
+    # for the fixed comparisons, how much to look for before and after stim onset
+
+    angles = np.zeros((len(taskaspects),n_pcs,n_trajectory))   # (tasks, pcs, trajectory)
+    for cxr,cr in enumerate(taskaspects):
+                
+        
+        # now to the cross angles between aspects
+        for px in range(n_pcs):
+            for t in range(n_trajectory):
+                aux = c_db[:,t,0,cxr].T @ c_db_motion[:,t,0,px]
+                aux = aux / np.linalg.norm(c_db[:,t,0,cxr]) / np.linalg.norm(c_db_motion[:,t,0,px])
+                angles[cxr,px,t] = np.arccos(aux)
+    angles *= 180/np.pi
+
+
+    if dump:
+        # saving angles_highres   as (taskvariables,n_trajectory,n_trajectory) as angles
+        pickle.dump(angles,open(cacheprefix+'locomotion/angles,RW,DVs-MVACC_%s-%dfps_%s'%(continuous_method,T['videofps'],dn),'wb'))
+
+
+
+
+
+
+
+    # plot angles
+    if doplot:
+
+        n_displaypcs = 40
+        n_subcols = 2
+        n_colpcs = n_displaypcs//n_subcols
+        fig,ax = plt.subplots(n_colpcs,len(taskaspects)*n_subcols,figsize=(10*len(taskaspects)*n_subcols,7*n_colpcs))
+        
+        
+        for cxr,cr in enumerate(taskaspects):
+             for px in range(min(n_displaypcs,n_pcs)):
+                axs = ax[px//n_subcols,2*cxr+px%n_subcols]
+
+                axs.plot(timestampsfps,angles[cxr,px,:], lw=2)
+                
+                axs.set_xlim([timestampsfps[0],timestampsfps[-1]])
+                if px<n_colpcs-1: axs.set_xticklabels([])
+                
+                axs.set_ylim(0,180)
+                axs.set_yticks(np.arange(0,181,30))
+                if px%2==1: axs.set_yticklabels([])
+                
+                figs.plottoaxis_stimulusoverlay(axs,T)
+                figs.setxt(axs)
+                figs.plottoaxis_chancelevel(axs,ch=90)
+                
+                # axs.set_title(cr+' $\cdot$ '+cc)
+                if px==0: axs.set_title(cr)
+                axs.set_ylabel('PC %d'%(px+1),labelpad=-8)
+
+        fig.suptitle('%s, decoders from neuron population: angles between\nmotion regression weights and task variables decision weights'%dn)
+        
+        save = 1 or globalsave
+        if save:
+            fig.savefig(resultpath+'angles,RW,DVs-MVACC_%s-%dfps_%s'%(continuous_method,T['videofps'],dn)+ext)
+
+
+
+
+
 
 
 
@@ -1032,7 +1165,7 @@ def decoder_crosstest(dn,block):
 
 
 
-def decoder_crosstest_highres(dn,block):
+def decoder_crosstest_highres(dn,block, method=None):
     # like crosstest, but training points are used for all timepoints
     # returns a matrix of trainpoints times testpoints
     # here using all possible multimodal trials (non-conditioned on other variables)
@@ -1044,38 +1177,224 @@ def decoder_crosstest_highres(dn,block):
 
     # setup stimulus:
     blv,bla = preprocess.getorderattended(dn)
-    # comparisongroups  = [   [ [ [blv[1]], [45],    [5000] ], [ [blv[1]],[135],     [5000] ]  ], \
-    #                         [ [ [bla[1]],  [45],[5000] ], [ [bla[1]],   [45],[10000] ]    ],    \
-    #                         [ [ [blv[1]],  [45],[5000] ], [ [bla[1]],   [45],[5000] ]    ],     \
-    #                         [[],[]] \
-    #                     ]
-    # taskaspects = ['visual','audio','context','choice']
+    n_trajectory,n_neurons = block.segments[0].analogsignals[0].shape
 
-    # for both contexts
-    # comparisongroups  = [   [ [ [2,4], [45],    [] ], [ [2,4],[135],     [] ]  ], \
-    #                         [ [ [2,4], [],    [5000] ], [ [2,4],[],     [10000] ]  ], \
-    #                         [ [ [blv[1]],  [],[] ], [ [bla[1]],   [],[] ]    ],     \
-    #                         [[],[]] \
-    #                     ]
-    # taskaspects = ['visual','audio','context','choice']
-    taskorder = [0,1,2,3]
-    exptyp = ''
+    # choose analysis type
+    
+
+    if method=='singlecontext':
+        # single contexts
+        comparisongroups  = [   [ [ [blv[1]], [45],    [5000] ], [ [blv[1]],[135],     [5000] ]  ], \
+                                [ [ [bla[1]],  [45],[5000] ], [ [bla[1]],   [45],[10000] ]    ],    \
+                                [ [ [blv[1]],  [45],[5000] ], [ [bla[1]],   [45],[5000] ]    ],     \
+                                [[],[]] \
+                            ]
+        taskaspects = ['visual','audio','context','choice']
+        taskorder = [0,1,2,3]
+        exptyp = ''
+
+
+
+    elif method=='allcontexts':
+        # for both contexts
+        comparisongroups  = [   [ [ [2,4], [45],    [] ], [ [2,4],[135],     [] ]  ], \
+                                [ [ [2,4], [],    [5000] ], [ [2,4],[],     [10000] ]  ], \
+                                [ [ [blv[1]],  [],[] ], [ [bla[1]],   [],[] ]    ],     \
+                                [[],[]] \
+                            ]
+        taskaspects = ['visual','audio','context','choice']
+        taskorder = [0,1,2,3]
+        exptyp = ',allcontexts'
     
 
 
+
+    elif method=='conditionedcontext':
     # for separately conditioning on the two contexts
-    comparisongroups  = [ \
-                            [ [ [blv[1]], [45],    [] ],   [ [blv[1]],[135],     [] ]  ], \
-                            [ [ [blv[1]], [],    [5000] ], [ [blv[1]],[],     [10000] ]  ], \
-                            [[blv[1]],[]], \
-                            [ [ [bla[1]], [45],    [] ],   [ [bla[1]],[135],     [] ]  ], \
-                            [ [ [bla[1]], [],    [5000] ], [ [bla[1]],[],     [10000] ]  ], \
-                            [[bla[1]],[]] \
-                        ]
-    taskaspects = ['visual,av','audio,av','choice,av',\
-                   'visual,aa','audio,aa','choice,aa']
-    taskorder = [0,3,1,4,2,5]
-    exptyp = ',avaa'
+        comparisongroups  = [ \
+                                [ [ [blv[1]], [45],    [] ],   [ [blv[1]],[135],     [] ]  ], \
+                                [ [ [blv[1]], [],    [5000] ], [ [blv[1]],[],     [10000] ]  ], \
+                                [[blv[1]],[]], \
+                                [ [ [bla[1]], [45],    [] ],   [ [bla[1]],[135],     [] ]  ], \
+                                [ [ [bla[1]], [],    [5000] ], [ [bla[1]],[],     [10000] ]  ], \
+                                [[bla[1]],[]], \
+                            ]
+        taskaspects = ['visual,av','audio,av','choice,av',\
+                    'visual,aa','audio,aa','choice,aa']
+        taskorder = [0,3,1,4,2,5]
+        exptyp = ',avaa'
+
+    
+
+
+
+
+    elif method=='congruency':
+        # congruency
+        comparisongroups  = [\
+                                [ [ [blv[1]], [45],  [5000] ], [ [blv[1]],   [135], [10000] ]  ], \
+                                [ [ [blv[1]], [45], [10000] ], [ [blv[1]],   [135],  [5000] ]  ], \
+                                [ [ [bla[1]], [45],  [5000] ], [ [bla[1]],   [135], [10000] ]  ], \
+                                [ [ [bla[1]], [135], [5000] ], [ [bla[1]],    [45], [10000] ]  ], \
+                            ]
+        taskaspects = ['gonogo-congruent,av','gonogo-conflict,av','gonogo-congruent,aa','gonogo-conflict,aa']
+        taskorder = [0,1,2,3]
+        exptyp = ',congconfl'
+
+
+   
+   
+   
+   
+    elif method=='sparsecontext':
+        # find context decoder in 45 trials from 135 cells, and 135 trials from 45 cells
+        comparisongroups  = [   [ [ [blv[1]], [45],    [] ], [ [bla[1]], [45],     [] ]  ], \
+                                [ [ [blv[1]], [135],    [] ], [ [bla[1]], [135],   [] ]  ], \
+                                [ [ [blv[1]], [],    [] ], [ [bla[1]], [],   [] ]  ]  \
+                            ]
+        taskaspects = ['context-t45,o135','context-t135,o45']
+        taskorder = [0,1]
+        exptyp = ',sparsecontext'
+        # exptyp = ',sparsecontext-reverse'               # -reverse
+
+        # get the coefficients for visual orientation ordering
+        c_db = []
+        comparison = 'visual'
+        acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
+        n_neuron = block.segments[0].analogsignals[0].shape[1]
+        wx = int((len(acrossdecoder)-7)/n_neuron)
+        c_db.append(  np.reshape(np.array(acrossdecoder[7:]), (wx,n_neuron,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)    )
+        c_db = np.array(c_db) # [comparisongroup,neurons,trajectory,stats]
+        c_db_means = np.array(c_db)[0,:,T['stimstart_idx']:T['stimend_idx'],:].mean(axis=1)  # average over stimulus timeinterval    # this is a comparison group by neuron by   stats matrix
+        mask_c_db_45 = c_db_means[:,0]>=0
+        mask_c_db_135 = np.logical_not(mask_c_db_45)
+        mask_c_db_orientationgroups = [mask_c_db_135, mask_c_db_45]          # have only 135 degree selective cells for 45 degree trials, and v.v.
+        # mask_c_db_orientationgroups = [mask_c_db_45, mask_c_db_135]         # reverse ->    corresponding orientations to trials
+
+
+    elif method=='sparsecontext-small':
+        # find context decoder in 45 trials from 135 cells, and 135 trials from 45 cells
+        comparisongroups  = [    [ [ [blv[1]], [],    [] ], [ [bla[1]], [],   [] ]  ]  \
+                            ]
+        taskaspects = ['context-tall,osmall']
+        taskorder = [0]
+        exptyp = ',sparsecontext-small'
+
+        # get the coefficients for visual orientation ordering
+        c_db = []
+        comparison = 'visual'
+        acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
+        n_neuron = block.segments[0].analogsignals[0].shape[1]
+        wx = int((len(acrossdecoder)-7)/n_neuron)
+        c_db.append(  np.reshape(np.array(acrossdecoder[7:]), (wx,n_neuron,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)    )
+        c_db = np.array(c_db) # [comparisongroup,neurons,trajectory,stats]
+        c_db_means = np.array(c_db)[0,:,T['stimstart_idx']:T['stimend_idx'],:].mean(axis=1)  # average over stimulus timeinterval    # this is a comparison group by neuron by   stats matrix
+        mask_c_db_small = np.abs(c_db_means[:,0])<0.04
+        mask_c_db_orientationgroups = [mask_c_db_small]
+
+
+
+
+
+
+    elif method=='visualnullspacecontext':
+
+        comparisongroups  = [    [ [ [blv[1]], [],    [] ], [ [bla[1]], [],   [] ]  ]  ]
+        taskaspects = ['context-visualnullspace']
+        taskorder = [0]
+        exptyp = ',visualnullspacecontext'
+        
+
+        # get the visual decoder
+        acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'visual','all'),'rb'))
+
+        c_db_matrix_visual = np.zeros((n_neurons,n_trajectory))       # prepare the dbnv vector holder
+
+        wx = int((len(acrossdecoder)-7)/n_neurons)            # we are only concerned with the coefficients coming after the train test (2) and PCs (5).
+        width = wx * T['dt']    # we will retroactively do a similar feature with decoder
+        
+        coeff = np.reshape(np.array(acrossdecoder[7:]), (wx,n_neurons,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)
+
+        # we do not take the mean of the stimulus over timecourse, because we want to remove the actual nullspace at each timepoint
+        c_db_matrix_visual = coeff[:,:,0]      # neurons by trajectory
+        c_db_matrix_visual /= np.linalg.norm(c_db_matrix_visual,axis=0)
+
+
+
+
+    elif method=='recurrentnullspacecontext':
+
+        n_nsrd = 1  # nullspace recursion depth       3, 10
+
+
+        comparison = 'context'
+        comparisongroups  = [    [ [ [blv[1]], [],    [] ], [ [bla[1]], [],   [] ]  ]  ]
+        taskorder = [0]
+        if 1:  # reduce context related activity
+            nullspace = 'context'
+            taskaspects = ['context-recurrentnullspace']
+            exptyp = ',recurrentnullspacecontext%d'%n_nsrd
+        else:  # reduce visual related activity
+            nullspace = 'visual'
+            taskaspects = ['context-recurrentvisualnullspace']
+            exptyp = ',recurrentvisualnullspacecontext%d'%n_nsrd
+
+
+        previous_rank = n_neurons
+
+        acrossdecoder_nullspaces,ranks = pickle.load(open(cacheprefix+'subspaces/nullspace,recurrent,decodes-%s_%s_%s.pck'%(dn,nullspace,continuous_method),'rb'))
+        print('ranks:',ranks.mean(axis=1).ravel())
+        print(comparison,len(acrossdecoder_nullspaces),len(acrossdecoder_nullspaces[0]),len(acrossdecoder_nullspaces[0][0]))
+
+
+        DV_projections_allnullspaces = []
+        for px in range(n_nsrd):
+            if px==0:
+                acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
+            else:  # later it will be the DV over the previously calculated orthogonal complement subspace
+                acrossdecoder = acrossdecoder_nullspaces[px-1]
+
+            
+            c_db_matrix = np.zeros((previous_rank,n_trajectory))       # prepare the dbnv vector holder
+
+            wx = int((len(acrossdecoder)-7)/(previous_rank))            # we are only concerned with the coefficients coming after the train test (2) and PCs (5).
+            width = wx * T['dt']    # we will retroactively do a similar feature with decoder
+
+            coeff = np.reshape(np.array(acrossdecoder[7:]), (wx,previous_rank,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)
+
+            # we do not take the mean of the stimulus over timecourse, because we want to remove the actual nullspace at each timepoint
+            c_db_matrix = coeff[:,:,0]      # neurons by trajectory
+            c_db_matrix /= np.linalg.norm(c_db_matrix,axis=0)
+            
+            
+            # calculate projection matrixes for all time t
+            DV_projections = []# np.zeros((n_neurons,n_neurons,n_trajectory-wx))
+            for t in range(n_trajectory-wx):
+                # shorthand vertical vector for the DV
+                v = c_db_matrix[:,t][:,np.newaxis]
+                # project with 1-DV onto the original neural space coordinate system the DV-orthogonal complement
+                A = np.eye(previous_rank) - v @ np.linalg.inv(v.T @ v) @ v.T
+                Q,R = np.linalg.qr(A)
+                r = np.linalg.matrix_rank(R)
+                DV_projections.append( R[:r,:] )        # reduce the projection to include only subspaces with orthogonal complement
+                # ranks[px,:,t] = np.linalg.matrix_rank(DV_projections[:,:,t]), np.linalg.matrix_rank(np.eye(DV_projections.shape[0])-DV_projections[:,:,t])
+                ranks[px,t] = r
+            DV_projections_allnullspaces.append(DV_projections.copy())
+            print('DV_projections',px+1, DV_projections[0].shape, DV_projections_allnullspaces[-1][0].shape)
+            # print('    rank time average: ', ranks[px,:].mean())
+            previous_rank = np.round(ranks[px,:].mean()).astype(np.int16)
+            
+
+
+
+
+    elif method==None:
+        print('method must be specified')
+        return
+
+
+
+
 
 
 
@@ -1098,10 +1417,8 @@ def decoder_crosstest_highres(dn,block):
         for cx,comparison in enumerate(taskaspects):
             print(dn,cx,comparison,comparisongroups[cx],trainingpoints[0],':',windowwidth,':',trainingpoints[-1],'n tr:',len(trainingpoints))
             
-            
             crossdecoder_matrix = []
             for trx,trainingpoint in enumerate(trainingpoints):
-           
                 
                 stimulusIDgroups = comparisongroups[cx]
     
@@ -1109,8 +1426,78 @@ def decoder_crosstest_highres(dn,block):
                 if not comparison[:6]=='choice': # visual, audio, context:
                     offresponses = preprocess.collect_stimulusspecificresponses(block,stimulusIDgroups)
                 else:  # choice:
-                    offresponses = preprocess.collect_stimulusspecificresponses_choice(block,dn,onlyinblock=stimulusIDgroups[0])
+                    offresponses = preprocess.collect_stimulusspecificresponses_choice(block,dn)#,onlyinblock=stimulusIDgroups[0])
+
+
+                if method[:13]=='sparsecontext':  # remove neurons with the opposite orientation of the selected trials so that visual response is removed
+                    offresponses = [ [trial[:,mask_c_db_orientationgroups[cx]] for trial in classes] for classes in offresponses ]
+                    print('sparse')
+
+
+                if method=='visualnullspacecontext':
+
+                    # remove any activity that is projected on to the DV, so that
+                    # any activity that remains is in the nullspace of DV
     
+                    offresponses_visualnullspace = [[],[]]
+                    for aix,responses in enumerate(offresponses):    # get either class of response collect
+                        
+                        for tr,response_trial in enumerate(responses):                # get the analogsignal that is at this trial, (neurons,trajectory)
+                            # print(type(response_trial),response_trial.shape)
+
+                            # find the DV projection with the original neural activity space coordinate system
+                            
+                            visualnullspace_trial = response_trial.copy()
+                            DV_visual_projections = np.zeros((n_neurons,n_neurons,n_trajectory-wx))
+                            
+                            # on stimulus each visual DV having its own timepoint
+                            for t in np.arange(T['stimstart_idx'],T['stimend_idx']):
+                                v = c_db_matrix_visual[:,t][:,np.newaxis]        # shorthand vertical vector for the DV
+                                DV_visual_projections[:,:,t] = v @ np.linalg.inv(v.T @ v) @ v.T
+                                visualnullspace_trial[t,:] = response_trial[t,:] - DV_visual_projections[:,:,t] @ response_trial[t,:].magnitude        # will result in (neurons,trajectory)
+                            # pre and onstimulus visual DV projection is average DV during stimulus
+                            for t in np.hstack((np.arange(0,T['stimstart_idx']),np.arange(T['stimstart_idx'],n_trajectory-wx))):
+                                visualnullspace_trial[t,:] = response_trial[t,:] - DV_visual_projections[:,:,T['stimstart_idx']:T['stimend_idx']].mean(axis=2) \
+                                                                                       @ response_trial[t,:].magnitude        # will result in (neurons,trajectory)
+
+                                
+                            offresponses_visualnullspace[aix].append(visualnullspace_trial)
+                    
+                    print(offresponses[0][5][150][0:3])
+                    print(offresponses_visualnullspace[0][5][150][0:3])
+                    offresponses = offresponses_visualnullspace
+
+
+
+                elif method=='recurrentnullspacecontext':
+
+
+                    offresponses_nullspace = [[],[]]
+                    for aix,responses in enumerate(offresponses):    # get either class of response collect
+                        
+
+                        for tr,response_trial in enumerate(responses):                # get the analogsignal that is at this trial, (neurons,trajectory)
+                            # print(type(response_trial),response_trial.shape)
+            
+                            # find the DV projection with the original neural activity space coordinate system
+                            
+                            previous_rank = n_neurons-1
+                            nullspace_trial = response_trial.copy()
+                            for rx in range(n_nsrd): # recurrently project for all nullspaces until a few remains
+                                response_trial_aux = response_trial[:,:previous_rank].copy()   # create the variable of the right size
+                                # print('rank', rx+1, 'projection shapes', DV_projections_allnullspaces[rx][0].shape, nullspace_trial.shape, response_trial_aux.shape)
+                                for t in range(n_trajectory-wx):
+                                    # remove the DV space, i.e. project onto the orthogonal complement
+                                    response_trial_aux[t,:] = DV_projections_allnullspaces[rx][t] @ nullspace_trial[t,:].magnitude
+                                nullspace_trial = response_trial_aux
+                                previous_rank -= 1
+
+                            offresponses_nullspace[aix].append(nullspace_trial)
+
+                    offresponses = offresponses_nullspace
+
+
+
                 # offresponses = preprocess.collect_stimulusspecificresponses(block,stimulusIDgroups)
         
                 # calculate crosstest over timecourse
@@ -1121,11 +1508,11 @@ def decoder_crosstest_highres(dn,block):
 
         crossdecoder_matrix_allaspects = np.array( crossdecoder_matrix_allaspects )
         print('crossdecoder matrix shape:   (tasks)(traintimes)(testtimepoints)(stats)   ',crossdecoder_matrix_allaspects.shape)
-        # pickle.dump(crossdecoder_matrix_allaspects,open(cacheprefix+'continuous/crossdecodematrix,cv-%s-%dms_%s.pck'%(continuous_method,T['dt'],dn),'wb'))
-        pickle.dump(crossdecoder_matrix_allaspects,open(cacheprefix+'continuous/crossdecodematrix,contextcond,cv-%s-%dms_%s.pck'%(continuous_method,T['dt'],dn),'wb'))
+        # pickle.dump(crossdecoder_matrix_allaspects,open(cacheprefix+'continuous/crossdecodematrix-%s-%dms_%s.pck'%(continuous_method,T['dt'],dn),'wb'))
+        pickle.dump(crossdecoder_matrix_allaspects,open(cacheprefix+'continuous/crossdecodematrix%s,contextcond,cv-%s-%dms_%s.pck'%(exptyp, continuous_method,T['dt'],dn),'wb'))
     else:
         # crossdecoder_matrix_allaspects = pickle.load(open(cacheprefix+'continuous/crossdecodematrix,cv-%s-%dms_%s.pck'%(continuous_method,T['dt'],dn),'rb'))
-        crossdecoder_matrix_allaspects = pickle.load(open(cacheprefix+'continuous/crossdecodematrix,contextcond,cv-%s-%dms_%s.pck'%(continuous_method,T['dt'],dn),'rb'))
+        crossdecoder_matrix_allaspects = pickle.load(open(cacheprefix+'continuous/crossdecodematrix%s,contextcond,cv-%s-%dms_%s.pck'%(exptyp, continuous_method,T['dt'],dn),'rb'))
         print('crossdecoder matrix shape:   (tasks)(traintimepoints)(testtimepoints)(stats)   ',crossdecoder_matrix_allaspects.shape)
     # print(len(crossdecoder_matrix_allaspects),len(crossdecoder_matrix_allaspects[0]),crossdecoder_matrix_allaspects[0][0].shape)
 
@@ -1139,7 +1526,8 @@ def decoder_crosstest_highres(dn,block):
         
         
         for cx,aspect in enumerate(taskaspects):
-                axs = ax[0,cx]
+                if len(taskaspects)>1: axs = ax[0,cx]
+                else: axs = ax[0]
                 
                 cmap = figs.getcorrcolormap('correlation')
                 cf = axs.pcolormesh(crossdecoder_matrix_allaspects[taskorder[cx],:,:,0],vmin=0,vmax=1,cmap=cmap)
@@ -1165,9 +1553,15 @@ def decoder_crosstest_highres(dn,block):
                 
                 
                 # now the same with surface plot:
-                ax[1,cx].remove()
-                ax[1,cx] = fig.add_subplot(2,len(taskaspects),len(taskaspects)+1+cx,projection='3d')
-                axs = ax[1,cx]
+                if len(taskaspects)>1:
+                    ax[1,cx].remove()
+                    ax[1,cx] = fig.add_subplot(2,len(taskaspects),len(taskaspects)+1+cx,projection='3d')
+                    axs = ax[1,cx]
+                else:                     
+                    ax[1].remove()
+                    ax[1] = fig.add_subplot(2,len(taskaspects),len(taskaspects)+1+cx,projection='3d')
+                    axs = ax[1]
+
 
                 skip = 50
                 smoother = np.ones((skip,skip)); smoother /= np.sum(smoother)
@@ -1406,6 +1800,52 @@ def decoder_crosstestgradient(dn,block):
 
 
 
+def decoder_acrosscontextcomparison(dn,block):
+
+
+    recalculate = 0 or globalrecalculate
+    doplot = 0 or globaldoplot
+    
+    width = 50*pq.ms
+    blv,bla = preprocess.getorderattended(dn)
+    comparisongroups  = [ \
+        [   [ [blv[1]],   [45],    [] ], [ [blv[1]],  [135],     [] ] ], \
+        [   [ [bla[1]],   [45],    [] ], [ [bla[1]],  [135],     [] ] ], \
+        [   [ [bla[1]],   [],    [5000] ], [ [bla[1]],  [],     [10000] ] ], \
+        [   [ [blv[1]],   [],    [5000] ], [ [blv[1]],  [],     [10000] ] ]  \
+    ]
+
+    taskaspects = ['visual,av','visual,aa','audio,aa','audio,av']
+    
+    acrossdecoders = []
+    for cx,comparison in enumerate(taskaspects):
+        if recalculate:
+
+            responses = preprocess.collect_stimulusspecificresponses(block, comparisongroups[cx])
+            c1 = len(responses[0])
+            c2 = len(responses[1])
+            ssam = c2>c1
+            
+            moretr = [c1,c2][ssam]     # the number of trials the larger set has
+            commontr = [c2,c1][ssam]   # find the common num trials
+            
+            seltr = np.random.permutation(moretr)[:commontr]
+            responses[ssam] = [ responses[ssam][j] for j in seltr ]    # sample trials
+
+            print(dn, '(1)%d/(2)%d, >:%d, m:%d, c:%d, selected:%d'%(c1,c2,ssam,moretr,commontr, len(seltr)) )
+
+            acrossdecoder = nedi.get_responsedecoding(responses,width=width)
+            pickle.dump(acrossdecoder,open(cacheprefix+'continuous/acrosscontextcomparison-%s_%s-%s.pck'%(comparison,dn,continuous_method),'wb'))
+        else:
+            acrossdecoder = pickle.load(open(cacheprefix+'continuous/acrosscontextcomparison-%s_%s-%s.pck'%(comparison,dn,continuous_method),'rb'))
+
+        acrossdecoders.append(acrossdecoder)
+    
+
+
+
+
+    return
 
 
 
@@ -1594,17 +2034,17 @@ def decoder_crosscontexttest(dn,block,retvar=False):                     #traini
     # FIGURES
     
     # plot metrics
-    if 0:
+    if 1 and doplot:
         fig,ax = plt.subplots(1,2,figsize=(32,12))
         for twidx in [0,1]:                    # left train on attend test on attend and crossignore,  right vv.
             axs = ax[twidx]
-            figs.plottoaxis_decoderrocauc(crossdecoders[twidx][:3],axs,plotcrosstest=True)       # plot the performance
+            figs.plottoaxis_decoderrocauc(crossdecoders[twidx][:3],axs,plottrain=False,plotcrosstest=True)       # plot the performance
+            axs.legend(['within context',None,'across context',None],frameon=False)
             figs.plottoaxis_stimulusoverlay(axs,T)
-            figs.plottoaxis_chancelevel(axs,0.5,'chance level')
-            axs.legend()
+            figs.plottoaxis_chancelevel(axs,0.5)
             axs.set_title(dn+', trained %s, testing %s '%(crosslabels[twidx+2][0],crosslabels[twidx+2][1]))
             
-            save = 0
+            save = 0 or globalsave
             if save:
                 fig.savefig(resultpath+'%stest_%s-%dms%dms_%s'%(filename[filenameidx],continuous_method,T['dt'].magnitude,T['bin'].magnitude,dn)+ext)
         
@@ -1613,7 +2053,7 @@ def decoder_crosscontexttest(dn,block,retvar=False):                     #traini
 
 
 
-    if 0:
+    if 1 and doplot:
         fig,ax = plt.subplots(2,2,figsize=(24,12))
         preon = 1 # plot only on stimulus,
         # rows -> trained on attend or ignore
@@ -1630,7 +2070,7 @@ def decoder_crosscontexttest(dn,block,retvar=False):                     #traini
                 axs.legend()
                 axs.set_xlim(-1,1)
         fig.suptitle(dn+' projections to %s DBNV'%taskaspects[trainidx]) 
-        save = 0
+        save = 0 or globalsave
         if save:
             fig.savefig(resultpath+'%s,project_%s-%dms%dms_%s'%(filename[filenameidx],continuous_method,T['dt'].magnitude,T['bin'].magnitude,dn)+ext)
 
@@ -1767,7 +2207,7 @@ def decoder_withincontext_saveprojections(dn,block):
 
 
 
-def decoder_acc_relevantirrelevant(dn,block):
+def decoder_acc_relevantirrelevant(dn,block,area='acc/'):
     # decode the relevant and the irrelevant stimuli, and congruent and conflicting stimuli trials separately, and for the two contexts
 
 
@@ -1816,9 +2256,9 @@ def decoder_acc_relevantirrelevant(dn,block):
         
             acrossdecoder = nedi.get_responsedecoding(acrossresponses, width=width)
 
-            pickle.dump(acrossdecoder,open(cacheprefix+'acc/stimulus,relevant-irrelevant_%s_%s-%s.pck'%(comparison,dn,continuous_method),'wb'))
+            pickle.dump(acrossdecoder,open(cacheprefix+'%sstimulus,relevant-irrelevant_%s_%s-%s.pck'%(area,comparison,dn,continuous_method),'wb'))
         else:
-            acrossdecoder = pickle.load(open(cacheprefix+'acc/stimulus,relevant-irrelevant_%s_%s-%s.pck'%(comparison,dn,continuous_method),'rb'))
+            acrossdecoder = pickle.load(open(cacheprefix+'%sstimulus,relevant-irrelevant_%s_%s-%s.pck'%(area,comparison,dn,continuous_method),'rb'))
 
         acrossdecoders.append(acrossdecoder)
                     
@@ -1877,14 +2317,19 @@ def decoder_acc_relevantirrelevant(dn,block):
 
 
 
-def decoder_acc_singletrialneuralbehaviour(dn,block):
+def decoder_acc_singletrialneuralbehaviour_relevantirrelevantcongruentconflicting(dn,block):
      # decode the relevant and the irrelevant stimuli, and congruent and conflicting stimuli trials separately, and for the two contexts
+
 
     recalculate = 0 or globalrecalculate
     doplot = 0 or globaldoplot
 
     
     n_neurons = block.segments[0].analogsignals[0].shape[1]
+    width = 50*pq.ms
+    # check
+
+
 
     # setup stimulus:
     blv,bla = preprocess.getorderattended(dn)
@@ -1902,7 +2347,10 @@ def decoder_acc_singletrialneuralbehaviour(dn,block):
     taskaspects = ['visual,av','audio,av','visual,aa','audio,aa',\
                    'gonogo-congruent,av','gonogo-conflict,av','gonogo-congruent,aa','gonogo-conflict,aa']
     
-    width = 50*pq.ms
+
+
+
+
 
 
 
@@ -2052,6 +2500,217 @@ def decoder_acc_singletrialneuralbehaviour(dn,block):
 
 
 
+def decoder_acc_singletrialneuralbehaviour_context(dn,block):
+     # decode the context, display probability for trials separately
+
+    recalculate = 0 or globalrecalculate
+    doplot = 0 or globaldoplot
+
+    
+    n_neurons = block.segments[0].analogsignals[0].shape[1]
+    width = 50*pq.ms
+    # check
+
+
+
+    # setup stimulus:
+    blv,bla = preprocess.getorderattended(dn)
+   
+
+    # for context
+    comparisongroups  = [\
+                            [ [ [blv[1]],   [],      [] ], [ [bla[1]],   [],      [] ]  ], \
+                            # [ [ [blv[1]], [45],      [] ], [ [bla[1]],   [],  [5000] ]  ], \
+                            # [ [ [blv[1]],[135],      [] ], [ [bla[1]],   [], [10000] ]  ], \
+                            # [ [ [blv[1]], [45],  [5000] ], [ [bla[1]],   [45], [5000] ]  ], \
+                            # [ [ [blv[1]], [135],  [10000] ], [ [bla[1]],   [135], [10000] ]  ], \
+                            # [ [ [blv[1]], [45], [10000] ], [ [bla[1]],   [135],  [5000] ]  ], \
+                            # [ [ [blv[1]], [135], [5000] ], [ [bla[1]],   [45],  [10000] ]  ], \
+                        ]
+
+
+
+    taskaspects = ['context']                        #,'context,go','context,nogo','context,cong','context,confl']
+    classlabels = ['visual','audio']
+
+
+
+
+
+    # assess performance
+    perftask = preprocess.get_conditioned_behaviour_singletrial(dn,comparisongroups,taskaspects,classlabels=classlabels)
+
+    # create base mask for conditioned testing of decoder; always two element list for the two classes of context
+    g = preprocess.loadexperimentdata(dn)
+    g['block']+=1
+    mask_base = [ g[ g['block'].isin([blv[1]]) ], g[ g['block'].isin([bla[1]]) ] ]
+    # mask_base = g[ g['block'].isin([blv[1],bla[1]]) ]
+    # create specific masks
+    masks = [ [ ((mb['degree']==45) & (mb['freq']==5000))                  for mb in mask_base ],\
+              [ ((mb['degree']==135) & (mb['freq']==10000))                for mb in mask_base ],\
+              [ ((mask_base[0]['degree']==45) & (mask_base[0]['freq']==10000)),  ((mask_base[1]['degree']==135) & (mask_base[1]['freq']==5000)) ],\
+              [ ((mask_base[0]['degree']==135) & (mask_base[0]['freq']==5000)),  ((mask_base[1]['degree']==45) & (mask_base[1]['freq']==10000)) ],\
+            ]
+    masks = np.array([  np.concatenate([mask[0],mask[1]]) for mask in masks        ])
+    # mask_labels = ['cong,go','cong,nogo','confl,go','confl,nogo']
+    # mask_labels = ['cong,go\ncorrect','cong,go\nerror','cong,nogo\ncorrect','cong,nogo\nerror',\
+    #                'confl,go\ncorrect','confl,go\nerror','confl,nogo\ncorrect','confl,nogo\nerror']
+    mask_labels = ['cong,go,correct','cong,go,error','cong,nogo,correct','cong,nogo,error',\
+                   'confl,go,correct','confl,go,error','confl,nogo,correct','confl,nogo,error']
+
+
+
+
+    # block boundaries:
+    b = preprocess.getblocklengths(dn).cumsum()
+    print(b)
+    if blv[1]>bla[1]:
+        b = b[ np.array([2,3,0,1],dtype=np.int16)  ]
+    
+
+
+
+    probasignals_tasks = []
+    for cx,comparison in enumerate(taskaspects):
+        # if cx<4: continue
+        print(comparison)
+        if recalculate:
+            acrossresponses = preprocess.collect_stimulusspecificresponses(block, comparisongroups[cx])
+        
+            # acrossdecoder = nedi.get_responsedecoding(acrossresponses, width=width)
+            probasignals, acc = nedi.get_pointwisedecoderprobability(acrossresponses, width=width)
+
+            pickle.dump((probasignals, acc),open(cacheprefix+'acc/singletrialneuralbehaviour_%s_%s-%s.pck'%(comparison,dn,continuous_method),'wb'))
+        else:
+            probasignals, acc = pickle.load(open(cacheprefix+'acc/singletrialneuralbehaviour_%s_%s-%s.pck'%(comparison,dn,continuous_method),'rb'))
+            if dn=='AC003': probasignals = 1 - probasignals
+
+        probasignals_tasks.append(probasignals)
+
+
+
+
+    # for i in range(len(taskaspects)):
+    #     print(perftask[i].shape,probasignals_tasks[i].shape)
+
+
+    if doplot:
+
+
+        if 0:    # marginal context
+
+            fig,ax = plt.subplots(1,1,figsize=(1*17,1*14))
+            # we want to compare correct against error trials' class probability predictions
+            # we have to do it for both contexts separately (as they are the classes)
+
+            ix = 0   # we only have context
+            axs = ax
+            # x = perftask[ix]
+            y_pre = probasignals_tasks[ix].magnitude[:,0:150].mean(axis=1)
+            y_early = probasignals_tasks[ix].magnitude[:,150:300].mean(axis=1)
+            y_late = probasignals_tasks[ix].magnitude[:,300:450].mean(axis=1)
+
+
+            
+            for clx,signal in enumerate(classlabels):    # choose the two classes the decoder separated
+                s = signal
+
+                mask_correct = perftask[ix][signal]==1     # correct trials
+                mask_error = perftask[ix][signal]==0       # error trials
+
+                for yx,(y,lab) in enumerate(zip([y_pre,y_early,y_late],['pre','early','late'])):
+                    axs.boxplot(x=[y[mask_correct],y[mask_error]],positions=[0+yx*7+clx*3,1.5+yx*7+clx*3],widths=0.8,labels=['%s\n%s\ncorrect'%(s,lab),'%s\n%s\nerror'%(s,lab)], notch=True)
+                    y_logit = np.log(y/(1-y))
+                    _,p = sp.stats.ttest_ind(y[mask_correct],y[mask_error])
+                    _,p_logit = sp.stats.ttest_ind(y_logit[mask_correct],y_logit[mask_error])
+                    axs.text(0.75+yx*7+clx*3,1.18,'prob t p=%5.4f\n odds t p=%5.4f'%(p,p_logit),horizontalalignment='center',verticalalignment='top',fontsize=15)
+                    
+
+            axs.set_yticks([0,1])
+            axs.set_yticklabels([ 'P(%s)=1'%cs for cs in classlabels ])
+            axs.set_ylim(-0.2,1.2)
+            figs.plottoaxis_chancelevel(axs,0.5)
+
+            if cx==0: axs.set_ylabel('class prob.')
+
+
+            axs.set_title(taskaspects[ix],fontsize=20)
+
+            fig.suptitle(dn+', probability of predicted\nrepresentations of context in correct and error trials')
+            
+
+            fig.tight_layout()
+
+            save = 0 or globalsave
+            if save:
+                fig.savefig(resultpath+'context,singletrialneuralbehaviour_%s_%s-%dms'%(dn,continuous_method,T['dt'])+ext)
+
+
+
+
+
+        if 1:    # conditioned context
+
+            # fig,ax = plt.subplots(1,len(masks),figsize=(len(masks)*17,1*14))
+            fig,ax = plt.subplots(1,1,figsize=(1*17,1*14))
+
+            ix = 0   # we only have context
+            # x = perftask[ix]
+            y_pre = probasignals_tasks[ix].magnitude[:,0:150].mean(axis=1)
+            y_early = probasignals_tasks[ix].magnitude[:,150:300].mean(axis=1)
+            y_late = probasignals_tasks[ix].magnitude[:,300:450].mean(axis=1)
+
+
+            # for mx,mask in enumerate(masks):
+            axs = ax
+            for clx,signal in enumerate(classlabels):    # choose the two classes the decoder separated
+                s = signal
+
+
+                mask_correct = perftask[ix][signal]==1     # correct trials
+                mask_error = perftask[ix][signal]==0       # error trials
+
+                for yx,(y,lab) in enumerate(zip([y_pre,y_early,y_late],['pre','early','late'])):
+
+                    ylist = []
+                    for mask in masks:
+                        ylist.extend( [ y[mask & mask_correct], y[mask & mask_error] ] )
+                    parts = [0,1,3,4,6,7,9,10]
+                    axs.boxplot(x=ylist,positions=[mx*0.6+yx*20+clx*10 for mx in parts], labels=None, widths=0.7, notch=True)
+                    for mx,m in enumerate(parts):
+                        axs.text(m*0.6+yx*20+clx*10,1.45,mask_labels[mx],rotation=90, horizontalalignment='center', verticalalignment='center',fontsize=10)
+                        if mx%2==1:
+                            y_logits = [np.log(ylist[mx-1]/(1-ylist[mx-1])), np.log(ylist[mx]/(1-ylist[mx])) ]
+                            _,p = sp.stats.ttest_ind(ylist[mx-1],ylist[mx])
+                            _,p_logit = sp.stats.ttest_ind(y_logits[0],y_logits[1])
+                            axs.text(m*0.6-0.5+yx*20+clx*10,1.3,'prob t p=%5.4f\n odds t p=%5.4f'%(p,p_logit),rotation=90,horizontalalignment='center',verticalalignment='top',fontsize=7)
+                    axs.text(4.5*0.6+yx*20+clx*10,-0.05,'attend %s\n%s'%(signal,lab),horizontalalignment='center', verticalalignment='center',fontsize=10)
+                    
+            axs.set_xticklabels([])
+            axs.set_yticks([0,1])
+            axs.set_yticklabels([ 'P(%s)=1'%cs for cs in classlabels ])
+            axs.set_ylim(-0.1,1.6)
+            figs.plottoaxis_chancelevel(axs,0.5)
+
+            if cx==0: axs.set_ylabel('class prob.')
+
+
+            axs.set_title(taskaspects[ix],fontsize=20)
+
+            fig.suptitle(dn+', probability of predicted\nrepresentations of context in congruent and conflicting trials')
+            
+
+            fig.tight_layout()
+
+            save = 0 or globalsave
+            if save:
+                fig.savefig(resultpath+'context,singletrialneuralbehaviour-conditioned_%s_%s-%dms'%(dn,continuous_method,T['dt'])+ext)
+
+    return
+
+
+
+
 
 
 
@@ -2156,6 +2815,190 @@ def decoder_behaviour(dn,block):
     if save:
         fig.savefig(resultpath+'behavior,context,singletrialprobability_%s-%dms%dms_%s'%(continuous_method,T['dt'].magnitude,T['bin'].magnitude,dn)+ext)
         
+
+
+
+
+
+
+
+
+
+
+
+def decoder_context_clevercluelessperiods(dn,block):
+    # load cluever and clueless periods from behaviour based on incongruent nogo trials performance
+    # only works with AC006, DT017, DT022, as they are the ones seemingly solve the task using context
+
+
+    doplot = 1 or globaldoplot
+
+
+
+    blv,bla = preprocess.getorderattended(dn) # get order of context
+
+    # get a list of visual and audio context trial masks, based on threshold of behaviour moving average
+    mask_clevers = physiology.get_mask_cleverness(dn,ma_threshold=0.5, visualfirst=True)
+
+
+
+    # split activity into contexts (original input to the calculated decoder)
+    comparisongroup  = [    [ [blv[1]],[],    [] ], [ [bla[1]],[],     [] ]   ]
+    acrossresponses = preprocess.collect_stimulusspecificresponses(block,comparisongroup)
+    
+    
+    # projection basis vectors:
+    depth_idx = int((1500*pq.ms / T['dt']).magnitude)
+    n_trajectory,n_neurons = block.segments[0].analogsignals[0].shape
+    basisaspects = ['context']      #,'visual','audio']
+    n_ba = len(basisaspects)
+    basisaspectcolors = ['fuchsia']   # np.array(taskcolors[0])[np.array([0,2,3],dtype=np.int16)]
+    c_db_matrix = np.zeros((n_neurons,n_ba,n_trajectory))       # prepare the dbnv vector holder
+    for bx,aspect in enumerate(basisaspects):
+        acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,aspect,'all'),'rb'))
+        # acrossdecoder = pickle.load(open(cacheprefix+'continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,aspect,'all'),'rb'))
+        wx = int((len(acrossdecoder)-7)/n_neurons)
+        # get decoder weights from the mean of forward features
+        coeff = np.reshape(np.array(acrossdecoder[7:]), (wx,n_neurons,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)
+
+        c_db_matrix[:,bx,:-wx] = coeff[:,:,0]
+        c_db_matrix[:,bx,-wx:] = coeff[:,-1,0][:,np.newaxis]
+        # mean of on stimulus (this we will not be needed):
+        # c_db_matrix[:,bx] = coeff[:,T['stimstart_idx']:T['stimstart_idx']+depth_idx,0].mean(axis=1)
+
+    # c_db_signs = np.sign(c_db_matrix[:,:,0])[:,np.newaxis]
+    # c_db_matrix[c_db_signs * (-1)] *= c_db_signs * (-1)
+    # c_db_matrix projects to the n_ba dbnv:   c_db_matrix @ neural_input;   do this for each timepoint separately (due to context drifint dynamically)
+    V = np.zeros((n_neurons,n_trajectory))
+    for t in range(n_trajectory):
+        Q,R = np.linalg.qr(c_db_matrix[:,:,t])     # Q holds the orthonormal basis vectors as columns, R is the transformed c_db_means_matrix
+        V[:,t] = Q[:,0]                          # activity transformer matrix, using the first (context) projection
+
+
+    projected_dynamics = []    # this will be (tasks,classes,trials), which here will be only the two contexts
+    # now project each activity onto the dbnv basis vectorspace
+    projected_dynamic = []
+    for aix,classresponse in enumerate(acrossresponses):
+        # project the entire dynamics trajectory onto the DVs axes for each trial
+        if len(classresponse)>0:
+            X = np.zeros((len(classresponse),n_trajectory))
+            for t in range(n_trajectory):
+                X[:,t] = np.dot(np.array(classresponse)[:,t,:],V[:,t])  #    (trials,trajectory,dbnvs) = (trials,trajectory,neurons) * (,,neurons,dbnv)
+                if t>0:         # this is a correction for correcting the randomly class-fllipping portions of the projections
+                    if np.abs(X[:,t].mean()-X[:,t-1].mean())>0.2: X[:,t] *= -1
+        else:
+            X = np.empty((0,n_trajectory))
+        projected_dynamic.append(X)
+    
+    projected_dynamics.append(projected_dynamic)
+
+
+    print(len(projected_dynamics), len(projected_dynamics[0]), len(projected_dynamics[0][0]), len(projected_dynamics[0][1]) )
+    print(projected_dynamics[0][0].shape)
+
+
+    
+    if doplot:
+
+        times = acrossresponses[0][0].times
+        fig,ax = plt.subplots(2,3,figsize=(3*12,2*8))
+
+    
+        axs = ax[0,0]
+
+        figs.plottoaxis_decoderrocauc(acrossdecoder,axs,['grey','mediumvioletred'])
+        figs.setxt(axs)
+        figs.plottoaxis_stimulusoverlay(axs,T)
+        figs.plottoaxis_chancelevel(axs,0.5)
+
+        axs.set_ylabel('context decoder accuracy')
+
+        
+        for cx in [0,1]:
+            axs = ax[0,1+cx]
+            
+            pcll = projected_dynamics[0][cx][~mask_clevers[cx],:]
+            pclv = projected_dynamics[0][cx][ mask_clevers[cx],:]
+            mcll,mclv = pcll.mean(axis=0), pclv.mean(axis=0)
+            ecll,eclv = pcll.std(axis=0)/np.sqrt(pcll.shape[0]), pclv.std(axis=0)/np.sqrt(pclv.shape[0])
+
+            # axs.plot(times, pcll.T, color='fuchsia', lw=1, alpha=0.1)
+            # axs.plot(times, pclv.T, color='rebeccapurple', lw=1, alpha=0.1)
+            
+            axs.plot(times, mcll, color='fuchsia', lw=1, label='clueless period, trial average')
+            axs.plot(times, mclv, color='rebeccapurple', lw=1, label='clever period, trial average')
+            
+            axs.fill_between(times, mcll-ecll, mcll+ecll,color='fuchsia', alpha=0.2 )
+            axs.fill_between(times, mclv-eclv, mclv+eclv,color='rebeccapurple', alpha=0.2 )
+
+            axs.set_ylim(-2,2)
+
+
+            axs.legend(frameon=False)
+            figs.setxt(axs)
+            figs.plottoaxis_stimulusoverlay(axs,T)
+
+            axs.set_ylabel('activity projection to context DV')
+
+            axs.set_title(['attend visual','attend audio'][cx])
+
+
+
+
+            axs = ax[1,1+cx]
+
+            mdpclvpcll = mclv - mcll
+            edpclvpcll = ecll + eclv
+            
+
+            axs.plot(times, mdpclvpcll, color='mediumvioletred', lw=2, label='clever-clueless, trial average')
+            
+            axs.fill_between(times, mdpclvpcll-edpclvpcll, mdpclvpcll+edpclvpcll,color='mediumvioletred', alpha=0.2 )
+
+            axs.set_ylim(-1,1)
+
+
+            axs.legend(frameon=False)
+            figs.setxt(axs)
+            figs.plottoaxis_stimulusoverlay(axs,T)
+            figs.plottoaxis_crosshair(axs,2000*pq.ms, 0.0)
+
+            axs.set_ylabel('difference of projections')
+
+        figs.invisibleaxes(ax[1,0],which=['left','right','top','bottom'])
+
+        fig.suptitle('%s, activity(t) projected onto context decoder DV(t), clever: incongruent nogo trials are also well performed'%dn)
+
+        fig.tight_layout()
+
+
+
+    save = 1
+    if save:
+        fig.savefig(resultpath+'behavior,%s,cleverueless,projection_%s-%dms%dms_%s'%(basisaspects[0],continuous_method,T['dt'].magnitude,T['bin'].magnitude,dn)+ext)
+        
+
+
+
+
+
+
+
+
+    return
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2410,7 +3253,7 @@ def subspaces(dn,block,examine='allexpcond'):
     # saves decision vectors and projections for other routines
     # any other subspace routine needs to be preceded by this routine with recalculate = True
     
-    recalculate = 0 or globalrecalculate
+    recalculate = 1 or globalrecalculate
     doplot = 0 or globaldoplot
     
     blv,bla = preprocess.getorderattended(dn)
@@ -2420,7 +3263,7 @@ def subspaces(dn,block,examine='allexpcond'):
                                  [[ [blv[1]], [45],    [5000] ], [ [blv[1]],[135],     [5000] ]  ] ],\
                               [  [[ [2,4],  [],[5000] ], [ [2,4],   [],[10000] ]],\
                                  [[ [bla[1]],  [45],[5000] ], [ [bla[1]],   [45],[10000] ]    ] ],\
-                              [  [[  blv,  [],[] ],   [ bla,   [], [] ] ],\
+                              [  [[ [blv[1]],  [],[] ],   [ [bla[1]],   [], [] ] ],\
                                  [[ [blv[1]],  [45],[5000] ], [ [bla[1]],   [45],[5000] ]   ] ], \
                               [  [[  [2,4],[], []  ],[[2,4],[], []  ] ], \
                                  [[  [2,4],[], []  ],[[2,4],[], []  ] ]   ],
@@ -2552,6 +3395,8 @@ def subspaces(dn,block,examine='allexpcond'):
     for cx,comparison in enumerate(taskaspects):
         # DT008 does not have a 45-135 in the 5th block, so treat as empty list element
         # if dn=='DT008' and cx==10: continue        # only needed for 5th block stimuli
+        # if not comparison in ['choiceattendvisual','choiceattendaudio']: continue
+        if not comparison in ['context']: continue
         for sx,stimulusspecificity in enumerate(trialconditions):
             
             stimulusIDgroups = comparisongroups[cx][sx]
@@ -2664,7 +3509,7 @@ def subspaces(dn,block,examine='allexpcond'):
                 
                 
     if doplot:
-        save = 1
+        save = 0
         if save:
             fig.savefig(resultpath+'decoder+svdpc,traj,subsp-%s_%s_%s-%dms%dms_%s'%(examine,layeredfilename,continuous_method,T['dt'].magnitude,T['bin'].magnitude,dn)+ext)
 
@@ -3196,6 +4041,246 @@ def subspaces_projections(dn,block,examine='allexpcond',play='visual',preon=1):
 
 
 
+def projectattimepoint(indices, txms, C, A):
+    # atomic function for time pointwise projection calculations to subspaces
+    # has the functionality of given indices for the time of the coefficients at lower sampling rate
+    # C must be (timeindices,neurons) (projectino coefficients)
+    # A must be (timeindices,neurons) (activity for a given trial)
+    P = np.zeros((A.shape[1], A.shape[1], len(indices)))
+    S = np.zeros((len(indices), A.shape[1]))
+    for tx,t in enumerate(indices):   # go over timepoint indices
+        txm = txms[t]   
+        if len(C.shape)<3: v = C[txm,:][:,np.newaxis]       # shorthand vertical vector for the DV
+        else: v = C[txm,:,:]       # use multiple vectors for the basis of the subspace
+        P[:,:,tx] = v @ np.linalg.inv(v.T @ v) @ v.T    # create the projection operator
+        S[tx,:] = P[:,:,tx] @ A[t,:]           # project activity to the subspace
+    return indices, P, S
+
+
+def subspaces_decode_nullspacespanmotion(dn,block):
+
+    recalculate = 0 or globalrecalculate
+    doplot = 0 or globaldoplot
+
+
+    # accuracies: (time,train/test,stats,task,symmetry)       # symmetry=0 is all behaviour, task=2 is context
+    # coefs: (time,neurons,stats,task,symmetry)
+    accuracies,coefs = pickle.load(open(cacheprefix+'symmetry/neural,VACC-all,symmetric-decoder,timecourse_%s.pck'%(dn), 'rb'))
+
+    # accuraciesnm: (time,pcs,traintest,stats)
+    # coefsnm: (time,pcs,neurons,stats)
+    accuraciesnm,coefsnm = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-decoder,neuraltomotion,timecourse_%s.pck'%dn, 'rb'))
+    coefsnm = np.swapaxes(coefsnm,1,2) # make it (time,neurons,ocs,stats) for the projection operator
+
+    samplingratefactor = np.int16(1000/T['dt'].magnitude/T['videofps'])
+
+
+    
+    # create the all trials, and just symmetriccal successful behaviour trial list
+    triallist = preprocess.loadexperimentdata(dn, multimodalonly=True)
+    triallist['block']+=1
+
+    blv,bla = preprocess.getorderattended(dn)
+    comparison  = [ blv[1], bla[1]  ]
+    comparisonmask = triallist['block']==comparison[0]
+    allcomplextrials = [ [comparison, [], []] ]
+    # activity is:  (trials,times,neurons)
+    neuralactivity_original = np.array(preprocess.collect_stimulusspecificresponses(block, allcomplextrials)[0])
+    n_trials,n_trajectory,n_neurons = neuralactivity_original.shape
+    wx = 5
+    n_pcs = coefsnm.shape[2]
+    # activity is:  (trials,times,neurons*wx,)
+    neuralactivity_motionspace = np.zeros((*neuralactivity_original.shape,n_pcs+1))  # last projection is for the span of all PCs
+    neuralactivity_contextspace = np.zeros(neuralactivity_original.shape)
+    times = block.segments[0].analogsignals[0].times.magnitude
+    n_timestamps_motion = coefsnm.shape[0]
+    txms = np.array([min(tx//samplingratefactor,n_timestamps_motion-1) for tx in range(len(times)) ] )    # use the wider coefficients from the motion sampling rate to apply for more timepoints in neural recordings
+
+    
+
+
+    # create a motion subspace
+    # calculate decoders
+    if recalculate:
+
+
+        if 1: # save a medium-level cache after projections have been calculated; pay manual attention
+            indexpartition = np.array_split(np.arange(n_trajectory), n_cpu)      # for use over timepoints multiprocessing
+            for px in range(n_pcs+1):      # go over pcs
+                print('project to PC %d/%d'%(px+1,n_pcs))
+                if px<n_pcs:   C = coefsnm[:,:,px,0] # single motion PC
+                else:          C = coefsnm[:,:,:,0]  # full neural space spanned by all of the PCs
+
+                for tr in range(n_trials):                # go over trials (neurons,trajectory)
+                    # find the VV projection with the original neural activity space coordinate system
+
+                    with multiprocessing.Pool(processes=n_cpu) as pool:
+                        for prc in range(n_cpu):
+                            r = pool.apply_async( projectattimepoint, (indexpartition[prc],txms,C,neuralactivity_original[tr,:,:]) )
+                            txi, P, S = r.get()
+                            neuralactivity_motionspace[tr,txi,:,px] = S
+
+
+
+                        
+                        # test if programming is ok (linear algebra rank)
+                        # print(px,tr,tx,'\n',\
+                        #       'rank context projection', np.linalg.matrix_rank(motion_projections[:,:,tx,px]),\
+                        #       'rank nullspace', np.linalg.matrix_rank(np.eye(motion_projections.shape[0])-motion_projections[:,:,tx,px]),\
+                        #       'rank visual projection', np.linalg.matrix_rank(motion_projections[:,:,tx,px]))
+                    #     if tx<160 or tx>162: continue
+                    # if tr>2: continue
+            pickle.dump(neuralactivity_motionspace, open(cacheprefix+'locomotion/neuralsubspaceactivity,motion-%s_%s.pck'%(dn,continuous_method), 'wb'))
+        else:
+            neuralactivity_motionspace = pickle.load(open(cacheprefix+'locomotion/neuralsubspaceactivity,motion-%s_%s.pck'%(dn,continuous_method), 'rb'))
+
+
+
+        # project to 1D context
+        print('project to context 1D')
+        acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'context','all'),'rb'))
+        wfeature = int((len(acrossdecoder)-7)/n_neurons)            # we are only concerned with the coefficients coming after the train test (2) and PCs (5).
+        coeff = np.reshape(np.array(acrossdecoder[7:]), (wfeature,n_neurons,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)
+        # we do not take the mean of the stimulus over timecourse, because we want to remove the actual nullspace at each timepoint
+        c_db_matrix = coeff[:,:,0]      # neurons by trajectory
+        c_db_matrix /= np.linalg.norm(c_db_matrix,axis=0)
+        c_db_matrix = np.concatenate([c_db_matrix,c_db_matrix[:,-wfeature-wx-1:]], axis=1) # pad due to smaller feature width
+
+        C = c_db_matrix.T # will be needed as (trajectory,neurons) during projections
+        for tr in range(n_trials):                # go over trials (neurons,trajectory)
+            _, _, neuralactivity_contextspace[tr,:,:] = \
+                            projectattimepoint(np.arange(n_trajectory),np.arange(n_trajectory),C,neuralactivity_original[tr,:,:])
+         
+
+
+
+
+
+        accuracies = np.zeros((n_trajectory-wx,2,3,n_pcs+3))     # (times,train/test,stats,projections:1/span/context/original)
+        coefs = np.zeros((n_trajectory-wx,n_neurons,3,n_pcs+3))          # (times,neurons,stats,projections:1/span/context/original)
+
+        
+        
+        targets = comparisonmask    # let the class labels be the context
+        # fill out the targets axes, with dimensions = (observations,timepoints,features)
+        targets = np.tile(targets, [1,n_trajectory-wx,1])
+        targets = np.swapaxes(targets, 0, 2)
+        
+        for px in range(n_pcs+3):
+            if px<=n_pcs:
+                if px<n_pcs: print('decode from PC %d/%d'%(px+1,n_pcs))
+                else: print('decode from span of all %d/%d PCs'%(n_pcs,n_pcs))
+                neuralactivity = neuralactivity_motionspace[:,:,:,px]
+            elif px==n_pcs+1:
+                print('decode from PC context')
+                neuralactivity = neuralactivity_contextspace
+            else:
+                print('decode from original')
+                neuralactivity = neuralactivity_original
+            
+
+            if wx>1:   # create wider feature space of several subsequent timepoints
+                neuralactivity = neph.slidingwindow(neuralactivity,wx)
+
+
+            predictors = neuralactivity
+            accuracy,coef = nedi.get_linearregressionmultivariate(predictors,targets,times,'classification')
+            
+            # reshape to average over feature timewidth
+            if wx>1:
+                coef = np.reshape(coef, [coef.shape[0], 1, wx, n_neurons, 3]).mean(axis=2)
+
+            # (n_timestamps,train/test,stats,projection)
+            accuracies[:,:,:,px] = accuracy.squeeze()
+            # (n_timestamps,n_neurons,stats,projection)
+            coefs[:,:,:,px] = coef.squeeze()
+
+                
+
+        pickle.dump((accuracies,coefs), open(cacheprefix+'locomotion/motionspacedecodes-%s_%s_%s.pck'%(dn,'context',continuous_method), 'wb'))
+    else:
+        accuracies,coefs = pickle.load( open(cacheprefix+'locomotion/motionspacedecodes-%s_%s_%s.pck'%(dn,'context',continuous_method), 'rb'))
+
+
+
+
+
+    if doplot:
+
+
+
+        # all individual PCs
+
+        h = 5; w = 8
+        fig,ax = plt.subplots(h,w, figsize=(w*10,h*8) )
+        # fig,ax = plt.subplots(1,1, figsize=(1*15,1*12) )
+        projectionlabels = ['1D motion subspace','span of all motion subspaces','1D context subspace','full subspace']
+        projectioncolors = ['red','goldenrod','deeppink','mediumvioletred']
+
+
+        for hx in range(h):
+            for wx in range(w):
+                px = hx*w+wx
+                if px>n_pcs-1: continue
+                for sx,s in enumerate([px,n_pcs,n_pcs+1,n_pcs+2]): # the last+1 is the original neural space
+                    
+                    axs = ax[hx,wx]
+                    # axs = ax
+                    colors = ['grey',projectioncolors[sx]]
+
+                    for k in [0,1]:
+                        if k==0: continue
+
+                        # (n_timestamps,train/test,stats,task,projection)
+                        m = accuracies[:,k,0,s]
+                        e = accuracies[:,k,2,s]
+                        axs.plot(times[:accuracies.shape[0]], m, color=colors[k], lw=2, label=projectionlabels[sx])
+                        axs.fill_between(times[:accuracies.shape[0]], m-e, m+e, color=colors[k], alpha=0.3)
+
+                figs.setxt(axs)
+                axs.set_ylim(0.45,1.05)
+                figs.plottoaxis_stimulusoverlay(axs,T)
+                figs.plottoaxis_chancelevel(axs,0.5)
+
+                # axs.set_title('PC %d'%(px+1))
+                
+                if px==0: axs.legend(frameon=False)
+                if wx==0: axs.set_ylabel('accuracy')
+                if hx==h-1: axs.set_xlabel('time from stimulus onset [ms]')
+
+
+
+
+        fig.suptitle(dn+' decoding context from subspaces of\nlargest neural variance by motion, and best context 1D subspace')
+
+
+        save = 0 or globalsave
+        if save:
+            fig.savefig(resultpath+'context,motionspace,decodes_%s'%(dn)+ext)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def subspaces_decode_nullspace1visual1(dn,block):
@@ -3204,7 +4289,7 @@ def subspaces_decode_nullspace1visual1(dn,block):
 
 
     recalculate = 0 or globalrecalculate
-    doplot = 1
+    doplot = 0
 
 
     blv,bla = preprocess.getorderattended(dn)
@@ -3347,10 +4432,9 @@ def subspaces_decode_nullspace1visual1(dn,block):
                 if doplot: fig.suptitle('%s, %s'%(dn,comparison))
     
 
-            return
-
-        # perform the decoding in the nullspace of the DV
-        # and over the visual DV subspace
+            
+            # perform the decoding in the nullspace of the DV
+            # and over the visual DV subspace
 
             acrossdecoder_nullspace = nedi.get_responsedecoding(acrossresponses_nullspace,width=width)
             pickle.dump(acrossdecoder_nullspace,open(cacheprefix+'subspaces/nullspacedecodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'wb'))
@@ -3400,22 +4484,629 @@ def subspaces_decode_nullspace1visual1(dn,block):
 
 
 
+def subspaces_decode_extendedspacevisualcontext(dn,block):
+    # decode context from the 2D subspace of context DV and visual DV
+    # need to be careful with cross-validation, which is another fuction below
 
-def subspaces_decode_nullspacerecurrent(dn,block):
-    # take the DV, and find its nullspace, then decode from its nullspace
-    # repeat until the 0 subspace is all that left
-    print('calculating recurrent projection nullspaces...')
 
-    recalculate = 0 or globalrecalculate
-    doplottrials = 0
-    doplot = 1
+
+
+    recalculate = 1 or globalrecalculate
+    doplot = 0 or globaldoplot
 
 
     blv,bla = preprocess.getorderattended(dn)
     comparisongroups = [ \
                           [        [ [2,4],  [45],[] ],       [ [2,4],   [135], [] ]         ],\
                           [        [ [2,4],  [],[5000] ],       [ [2,4],   [], [10000] ]         ],\
-                          [        [ blv,  [],[] ],       [ bla,   [], [] ]         ],\
+                          [        [ [blv[1]],  [],[] ],       [ [bla[1]],   [], [] ]         ],\
+                          [ [], [] ],
+                       ]
+    taskaspects = ['visual','audio','context','choice']            # this is only done for the context for now
+
+    width = 50*pq.ms
+    
+    
+    
+    
+    print(dn)
+    
+    for cx,comparison in enumerate(taskaspects):
+    
+        if recalculate:
+    
+            print(comparison)
+    
+    
+    
+    
+            # get the DV
+    
+            n_trajectory,n_neurons = block.segments[0].analogsignals[0].shape
+            celltypes = block.annotations['celltypes']
+            
+                   
+
+            # load visual DV
+            acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'visual','all'),'rb'))
+    
+            c_db_matrix_visual = np.zeros((n_neurons,n_trajectory))       # prepare the dbnv vector holder
+    
+            wx = int((len(acrossdecoder)-7)/n_neurons)            # we are only concerned with the coefficients coming after the train test (2) and PCs (5).
+            width = wx * T['dt']    # we will retroactively do a similar feature withd decoder
+            
+            coeff = np.reshape(np.array(acrossdecoder[7:]), (wx,n_neurons,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)
+    
+            # we do not take the mean of the stimulus over timecourse, because we want to remove the actual nullspace at each timepoint
+            c_db_matrix_visual = coeff[:,:,0]      # neurons by trajectory
+            c_db_matrix_visual /= np.linalg.norm(c_db_matrix_visual,axis=0)
+            
+            
+            # load context DV            
+            acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'context','all'),'rb'))
+    
+            c_db_matrix_context = np.zeros((n_neurons,n_trajectory))       # prepare the dbnv vector holder
+    
+            wx = int((len(acrossdecoder)-7)/n_neurons)            # we are only concerned with the coefficients coming after the train test (2) and PCs (5).
+            width = wx * T['dt']    # we will retroactively do a similar feature withd decoder
+            
+            coeff = np.reshape(np.array(acrossdecoder[7:]), (wx,n_neurons,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)
+    
+            # we do not take the mean of the stimulus over timecourse, because we want to remove the actual nullspace at each timepoint
+            c_db_matrix_context = coeff[:,:,0]      # neurons by trajectory
+            c_db_matrix_context /= np.linalg.norm(c_db_matrix_context,axis=0)
+            
+
+
+
+                        
+            # create the two dimensional subspace from visual 
+            c_db_matrix_visualcontext = np.stack((c_db_matrix_context,c_db_matrix_visual),axis=1)
+
+            print('2D projections at all timepoints', c_db_matrix_visualcontext.shape)
+    
+
+
+
+
+
+
+
+            # get the total activity
+            if not comparison=='choice': # visual, audio, context:
+                acrossresponses = preprocess.collect_stimulusspecificresponses(block,comparisongroups[cx])
+            else:  # choice:
+                acrossresponses = preprocess.collect_stimulusspecificresponses_choice(block,dn)
+    
+            
+            # create the projections to the 2D subspace
+            acrossresponses_context1space = [[],[]]
+            acrossresponses_extendedspace = [[],[]]
+            for aix,responses in enumerate(acrossresponses):    # get either class of response collect
+                n_trials_toshow = 8
+                trials_toshow = np.random.permutation(len(responses))[:n_trials_toshow]
+                trx = 0 # counts trials displayed
+                
+                if doplot: fig,ax = plt.subplots(n_trials_toshow,n_neurons,figsize=(n_neurons*12,n_trials_toshow*8))
+                
+                
+                for tr,response_trial in enumerate(responses):                # get the analogsignal that is at this trial, (neurons,trajectory)
+                    # print(type(response_trial),response_trial.shape)
+    
+                    # find the DV projection with the original neural activity space coordinate system
+                    
+                    context1space_trial = response_trial.copy()
+                    extendedspace_trial = response_trial.copy()
+                    DV_context_projections = np.zeros((n_neurons,n_neurons,n_trajectory-wx))
+                    DV_visualcontext_projections = np.zeros((n_neurons,n_neurons,n_trajectory-wx))
+                    
+                    for t in range(n_trajectory-wx):
+
+
+                        # 1D context
+                        # shorthand vertical vector for the DV
+                        v = c_db_matrix_context[:,t][:,np.newaxis]    # neurons times number of DVs (1D basis)
+                        DV_context_projections[:,:,t] = v @ np.linalg.inv(v.T @ v) @ v.T
+                        context1space_trial[t,:] = DV_context_projections[:,:,t] @ response_trial[t,:].magnitude        # will result in (neurons,trajectory)
+
+
+                        
+                        # 2D context visual-extended
+                        v = c_db_matrix_visualcontext[:,:,t]    # neurons times number of DVs (2D basis in this case)
+                        DV_visualcontext_projections[:,:,t] = v @ np.linalg.inv(v.T @ v) @ v.T
+                        extendedspace_trial[t,:] = DV_visualcontext_projections[:,:,t] @ response_trial[t,:].magnitude        # will result in (neurons,trajectory)
+                        
+                        # test if programming is ok (linear algebra rank)
+                        # print('rank context projection', np.linalg.matrix_rank(DV_projections[:,:,t]),\
+                        #       'rank nullspace', np.linalg.matrix_rank(np.eye(DV_projections.shape[0])-DV_projections[:,:,t]),\
+                        #       'rank visual projection', np.linalg.matrix_rank(DV_visual_projections[:,:,t]))
+                        #       'rank visualcontext projection', np.linalg.matrix_rank(DV_visualcontext_projections[:,:,t]))
+                        
+                    
+                    acrossresponses_context1space[aix].append(context1space_trial)
+                    acrossresponses_extendedspace[aix].append(extendedspace_trial)
+
+
+                    
+                    if doplot:
+                        if tr in trials_toshow:
+                            for n in range(n_neurons):
+                                axs = ax[trx,n]
+                                axs.plot(response_trial.times,response_trial[:,n],color='navy',lw=3,alpha=0.5,label='original activity')
+                                axs.plot(context1space_trial.times,context1space_trial[:,n],color='fuchsia',lw=3,alpha=0.5,label='extended space projection')
+                                axs.plot(extendedspace_trial.times,extendedspace_trial[:,n],color='dodgerblue',lw=3,alpha=0.5,label='extended space projection')
+                                figs.plottoaxis_chancelevel(axs)
+                                figs.setxt(axs)
+                                figs.plottoaxis_stimulusoverlay(axs,T)
+                                if trx==0: axs.set_title('neuron %d'%(n+1))
+                                if n==0: axs.set_ylabel('trial %d'%(tr+1))
+                                axs.legend(frameon=False)
+                            trx += 1
+    
+                if doplot: fig.suptitle('%s, %s'%(dn,comparison))
+    
+
+            
+            # perform the decoding in the nullspace of the DV
+            # and over the visual DV subspace
+
+            acrossdecoder_context1space = nedi.get_responsedecoding(acrossresponses_context1space,width=width)
+            pickle.dump(acrossdecoder_context1space,open(cacheprefix+'subspaces/context1space,decodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'wb'))
+            acrossdecoder_extendedspace = nedi.get_responsedecoding(acrossresponses_extendedspace,width=width)
+            pickle.dump(acrossdecoder_extendedspace,open(cacheprefix+'subspaces/extendedspace,context+visual,decodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'wb'))
+        else:
+            acrossdecoder_context1space = pickle.load(open(cacheprefix+'subspaces/context1space,decodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+            acrossdecoder_extendedspace = pickle.load(open(cacheprefix+'subspaces/extendedspace,context+visual,decodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+
+
+    if doplot:
+            
+        fig,ax = plt.subplots(1,len(taskaspects),figsize=(len(taskaspects)*12,1*8))
+        
+        for cx,comparison in enumerate(taskaspects):
+            if len(taskaspects)==1: axs = ax
+            else: axs = ax[cx]
+            # times = acrossdecoder_nullspace[1].analogsignals[0].times
+            
+            acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
+            acrossdecoder_context1space = pickle.load(open(cacheprefix+'subspaces/context1space,decodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+            acrossdecoder_extendedspace = pickle.load(open(cacheprefix+'subspaces/extendedspace,context+visual,decodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+
+            figs.plottoaxis_decoderrocauc(acrossdecoder[:2],axs)       # plot the performance
+            figs.plottoaxis_decoderrocauc(acrossdecoder_context1space[:2],axs,colorlist=['gold','fuchsia'])       # plot the performance
+            figs.plottoaxis_decoderrocauc(acrossdecoder_extendedspace[:2],axs,colorlist=['darkgoldenrod','rebeccapurple'])       # plot the performance
+            figs.plottoaxis_stimulusoverlay(axs,T)
+            figs.plottoaxis_chancelevel(axs,0.5)
+            
+            axs.set_title(comparison)
+
+
+        fig.suptitle('%s - original (orange), sameDVnullspace (red), visualDVspace (purple)'%(dn))
+
+
+
+        save = 0
+        if save:
+            fig.savefig(resultpath+'decoders,over,dv-visual+context,projectedactivities-%s-%s'%(dn,continuous_method)+ext)
+
+
+    return
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def subspaces_decode_extendedspacevisualcontext_cvsplit(dn,block):
+    # decode context from the 2D subspace of context DV and visual DV
+    # with cross-validation
+
+
+
+
+    recalculate = 0 or globalrecalculate
+    doplot = 1 or globaldoplot
+
+
+    blv,bla = preprocess.getorderattended(dn)
+    comparisongroups = [ \
+                          [        [ [2,4],  [45],[] ],       [ [2,4],   [135], [] ]         ],\
+                          [        [ [2,4],  [],[5000] ],       [ [2,4],   [], [10000] ]         ],\
+                          [        [ [blv[1]],  [],[] ],       [ [bla[1]],   [], [] ]         ],\
+                          [ [], [] ],
+                       ]
+    taskaspects = ['visual','audio','context','choice']            # this is only done for the context for now
+
+    width = 50*pq.ms
+    
+    
+    n_trajectory,n_neurons = block.segments[0].analogsignals[0].shape
+
+    print(dn)
+
+
+    # this is a context decoder
+    cx = 2; comparison = 'context'
+
+
+    # calculate the context DV in one half of the trials and test projections on the other half
+    if recalculate:
+
+        # split the outer CV with indices
+        splitslices = [[],[]]
+        for cvsplit in [0,1]:  # we need to precalculate both for outer train vs test
+            acrossresponses = preprocess.collect_stimulusspecificresponses(block,comparisongroups[cx])
+            splitslices[cvsplit] = [ slice(cvsplit,len(arcspl),2) for arcspl in acrossresponses ]
+
+
+
+
+        acrossdecoder_context1spaces = []
+        acrossdecoder_extendedspaces = []
+
+        for cvsplit in [0,1]:
+
+            print('outer CV split %d/2'%(cvsplit+1))
+
+            acrossresponses = preprocess.collect_stimulusspecificresponses(block,comparisongroups[cx])
+            acrossresponses_contextsplit = [ arcspl[splitslices[cvsplit][i]] for i,arcspl in enumerate(acrossresponses)]
+            
+            # decode context from the outer train split:
+            acrossdecoder_contextsplit = nedi.get_responsedecoding(acrossresponses_contextsplit,width=width)
+
+            # get the context DV on outer train set
+            c_db_matrix_context = np.zeros((n_neurons,n_trajectory))       # prepare the dbnv vector holder
+            wx = int((len(acrossdecoder_contextsplit)-7)/n_neurons)            # we are only concerned with the coefficients coming after the train test (2) and PCs (5).
+            width = wx * T['dt']    # we will retroactively do a similar feature withd decoder
+            coeff = np.reshape(np.array(acrossdecoder_contextsplit[7:]), (wx,n_neurons,acrossdecoder_contextsplit[7].shape[0],acrossdecoder_contextsplit[7].shape[1]) ).mean(axis=0)
+            c_db_matrix_split = coeff[:,:,0]      # neurons by trajectory
+            c_db_matrix_split /= np.linalg.norm(c_db_matrix_split,axis=0)
+            # get a handler for the CV train context DV
+            c_db_matrix_context = c_db_matrix_split
+    
+
+     
+            # get the visual DVs
+
+            # load visual DV; this does not need to be outer split, as this is a different decoder than test candidate context
+            acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'visual','all'),'rb'))
+            c_db_matrix_visual = np.zeros((n_neurons,n_trajectory))       # prepare the dbnv vector holder
+            wx = int((len(acrossdecoder)-7)/n_neurons)            # we are only concerned with the coefficients coming after the train test (2) and PCs (5).
+            width = wx * T['dt']    # we will retroactively do a similar feature withd decoder
+            coeff = np.reshape(np.array(acrossdecoder[7:]), (wx,n_neurons,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)
+            c_db_matrix_visual = coeff[:,:,0]      # neurons by trajectory
+            c_db_matrix_visual /= np.linalg.norm(c_db_matrix_visual,axis=0)
+            
+            
+            
+            
+
+
+                        
+            # create the two dimensional subspace from visual 
+            c_db_matrix_visualcontext = np.stack((c_db_matrix_context,c_db_matrix_visual),axis=1)
+
+            print('2D projections at all timepoints', c_db_matrix_visualcontext.shape)
+    
+
+
+
+
+
+
+
+            # get the total activity in the other split (1-splitindex), the test set
+            acrossresponses = preprocess.collect_stimulusspecificresponses(block,comparisongroups[cx])
+            acrossresponses = [ arcspl[splitslices[1-cvsplit][i]] for i,arcspl in enumerate(acrossresponses)]
+
+            
+            # create the projections to the 2D subspace
+            acrossresponses_context1space = [[],[]]
+            acrossresponses_extendedspace = [[],[]]
+            for aix,responses in enumerate(acrossresponses):    # get either class of response collect
+             
+                
+                for tr,response_trial in enumerate(responses):                # get the analogsignal that is at this trial, (neurons,trajectory)
+                    # print(type(response_trial),response_trial.shape)
+    
+                    # find the DV projection with the original neural activity space coordinate system
+                    
+                    context1space_trial = response_trial.copy()
+                    extendedspace_trial = response_trial.copy()
+                    DV_context_projections = np.zeros((n_neurons,n_neurons,n_trajectory-wx))
+                    DV_visualcontext_projections = np.zeros((n_neurons,n_neurons,n_trajectory-wx))
+                    
+                    for t in range(n_trajectory-wx):
+
+
+                        # 1D context
+                        # shorthand vertical vector for the DV
+                        v = c_db_matrix_context[:,t][:,np.newaxis]    # neurons times number of DVs (1D basis)
+                        DV_context_projections[:,:,t] = v @ np.linalg.inv(v.T @ v) @ v.T
+                        context1space_trial[t,:] = DV_context_projections[:,:,t] @ response_trial[t,:].magnitude        # will result in (neurons,trajectory)
+
+
+                        
+                        # 2D context visual-extended
+                        v = c_db_matrix_visualcontext[:,:,t]    # neurons times number of DVs (2D basis in this case)
+                        DV_visualcontext_projections[:,:,t] = v @ np.linalg.inv(v.T @ v) @ v.T
+                        extendedspace_trial[t,:] = DV_visualcontext_projections[:,:,t] @ response_trial[t,:].magnitude        # will result in (neurons,trajectory)
+                        
+                        # test if programming is ok (linear algebra rank)
+                        # print('rank context projection', np.linalg.matrix_rank(DV_projections[:,:,t]),\
+                        #       'rank nullspace', np.linalg.matrix_rank(np.eye(DV_projections.shape[0])-DV_projections[:,:,t]),\
+                        #       'rank visual projection', np.linalg.matrix_rank(DV_visual_projections[:,:,t]))
+                        #       'rank visualcontext projection', np.linalg.matrix_rank(DV_visualcontext_projections[:,:,t]))
+                        
+                    
+                    acrossresponses_context1space[aix].append(context1space_trial)
+                    acrossresponses_extendedspace[aix].append(extendedspace_trial)
+
+
+
+            # perform the decoding in the nullspace of the DV
+            # and over the visual DV subspace
+
+            acrossdecoder_context1spaces.append( nedi.get_responsedecoding(acrossresponses_context1space,width=width) )
+            acrossdecoder_extendedspaces.append( nedi.get_responsedecoding(acrossresponses_extendedspace,width=width) )
+
+
+
+        # after we have the two CVd in the two outer CV tests, we take the mean at each timepoint
+
+        acrossdecoder_context1space = []
+        acrossdecoder_extendedspace = []
+        for k in range(len(acrossdecoder_context1spaces[0])):
+            acrossdecoder_context1space.append(  np.mean( np.stack( np.array([ acrossdecoder_context1spaces[i][k] for i in [0,1] ]), axis=0), axis=0)      )
+            acrossdecoder_context1space[-1] = neo.AnalogSignal(  acrossdecoder_context1space[-1], name='context1_accuracy_%d'%(k+1), t_start=T['starttime'], sampling_period=T['dt'], units=pq.dimensionless)
+            
+            acrossdecoder_extendedspace.append(  np.mean( np.stack( np.array([ acrossdecoder_extendedspaces[i][k] for i in [0,1] ]), axis=0), axis=0)      )
+            acrossdecoder_extendedspace[-1] = neo.AnalogSignal(  acrossdecoder_extendedspace[-1], name='context1+visual1_accuracy_%d'%(k+1), t_start=T['starttime'], sampling_period=T['dt'], units=pq.dimensionless)
+
+        # save decoder accuracies
+        pickle.dump(acrossdecoder_context1space,open(cacheprefix+'subspaces/context1space,decodes,ocv-%s_%s_%s.pck'%(dn,comparison,continuous_method),'wb'))
+        pickle.dump(acrossdecoder_extendedspace,open(cacheprefix+'subspaces/extendedspace,context+visual,decodes,ocv-%s_%s_%s.pck'%(dn,comparison,continuous_method),'wb'))
+    else:
+        acrossdecoder_context1space = pickle.load(open(cacheprefix+'subspaces/context1space,decodes,ocv-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+        acrossdecoder_extendedspace = pickle.load(open(cacheprefix+'subspaces/extendedspace,context+visual,decodes,ocv-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+
+
+    if doplot:
+            
+        fig,ax = plt.subplots(1,len(taskaspects),figsize=(len(taskaspects)*12,1*8))
+        
+        if len(taskaspects)==1: axs = ax
+        else: axs = ax[cx]
+        # times = acrossdecoder_nullspace[1].analogsignals[0].times
+        
+        acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
+        acrossdecoder_context1space = pickle.load(open(cacheprefix+'subspaces/context1space,decodes,ocv-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+        acrossdecoder_extendedspace = pickle.load(open(cacheprefix+'subspaces/extendedspace,context+visual,decodes,ocv-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+        print(len(acrossdecoder_context1space))
+        print(type(acrossdecoder_context1space[0]))
+        print((acrossdecoder_context1space[0]).shape)
+        figs.plottoaxis_decoderrocauc(acrossdecoder[:2],axs)       # plot the performance
+        figs.plottoaxis_decoderrocauc(acrossdecoder_context1space[:2],axs,colorlist=['gold','fuchsia'])       # plot the performance
+        figs.plottoaxis_decoderrocauc(acrossdecoder_extendedspace[:2],axs,colorlist=['darkgoldenrod','rebeccapurple'])       # plot the performance
+        figs.plottoaxis_stimulusoverlay(axs,T)
+        figs.plottoaxis_chancelevel(axs,0.5)
+        
+        axs.set_title(comparison)
+
+
+        # fig.suptitle('%s - original (orange), sameDVnullspace (red), visualDVspace (purple)'%(dn))
+
+
+
+        save = 0
+        if save:
+            fig.savefig(resultpath+'decoders,over,dv-visual+context,ocv,projectedactivities-%s-%s'%(dn,continuous_method)+ext)
+
+
+    return
+
+
+
+
+
+
+
+
+def subspaces_decode_contextnullspacevisual(dn,block, n_recursions=1):
+    # take the projection onto the nullspace of the visual DV and decode variables from there
+
+
+    recalculate = 1 or globalrecalculate
+    doplot = 0 or globaldoplot
+
+
+    blv,bla = preprocess.getorderattended(dn)
+    comparisongroups = [ \
+                          [        [ [2,4],  [45],[] ],       [ [2,4],   [135], [] ]         ],\
+                          [        [ [2,4],  [],[5000] ],       [ [2,4],   [], [10000] ]         ],\
+                          [        [ [blv[1]],  [],[] ],       [ [bla[1]],   [], [] ]         ],\
+                          [ [], [] ],
+                       ]
+    taskaspects = ['visual','audio','context','choice']            # this is only done for the context for now
+
+    width = 50*pq.ms
+    
+    
+    
+    
+    print(dn)
+    
+    if recalculate:
+
+        for cx,comparison in enumerate(taskaspects):
+            print(comparison)
+    
+    
+    
+    
+            # get each decoder
+    
+            n_trajectory,n_neurons = block.segments[0].analogsignals[0].shape
+            celltypes = block.annotations['celltypes']
+            
+            acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
+    
+            c_db_matrix = np.zeros((n_neurons,n_trajectory))       # prepare the dbnv vector holder
+    
+            wx = int((len(acrossdecoder)-7)/n_neurons)            # we are only concerned with the coefficients coming after the train test (2) and PCs (5).
+            width = wx * T['dt']    # we will retroactively do a similar feature with decoder
+            
+            coeff = np.reshape(np.array(acrossdecoder[7:]), (wx,n_neurons,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)
+    
+            # we do not take the mean of the stimulus over timecourse, because we want to remove the actual nullspace at each timepoint
+            c_db_matrix = coeff[:,:,0]      # neurons by trajectory
+            c_db_matrix /= np.linalg.norm(c_db_matrix,axis=0)
+            
+
+
+
+            # get the visual decoder
+            acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'visual','all'),'rb'))
+    
+            c_db_matrix_visual = np.zeros((n_neurons,n_trajectory))       # prepare the dbnv vector holder
+    
+            wx = int((len(acrossdecoder)-7)/n_neurons)            # we are only concerned with the coefficients coming after the train test (2) and PCs (5).
+            width = wx * T['dt']    # we will retroactively do a similar feature with decoder
+            
+            coeff = np.reshape(np.array(acrossdecoder[7:]), (wx,n_neurons,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)
+    
+            # we do not take the mean of the stimulus over timecourse, because we want to remove the actual nullspace at each timepoint
+            c_db_matrix_visual = coeff[:,:,0]      # neurons by trajectory
+            c_db_matrix_visual /= np.linalg.norm(c_db_matrix_visual,axis=0)
+
+
+
+
+
+
+    
+    
+            print('projections at all timepoints', c_db_matrix.shape)
+    
+    
+    
+            # remove any activity that is projected on to the DV, so that
+            # any activity that remains is in the nullspace of DV
+    
+            if not comparison=='choice': # visual, audio, context:
+                acrossresponses = preprocess.collect_stimulusspecificresponses(block,comparisongroups[cx])
+            else:  # choice:
+                acrossresponses = preprocess.collect_stimulusspecificresponses_choice(block,dn)
+    
+            
+            acrossresponses_visualnullspace = [[],[]]
+            for aix,responses in enumerate(acrossresponses):    # get either class of response collect
+                                
+                
+                for tr,response_trial in enumerate(responses):                # get the analogsignal that is at this trial, (neurons,trajectory)
+                    # print(type(response_trial),response_trial.shape)
+    
+                    # find the DV projection with the original neural activity space coordinate system
+                    
+                    visualnullspace_trial = response_trial.copy()
+                    DV_visual_projections = np.zeros((n_neurons,n_neurons,n_trajectory-wx))
+                    
+                    for t in range(n_trajectory-wx):
+                        v = c_db_matrix_visual[:,t][:,np.newaxis]        # shorthand vertical vector for the DV
+                        DV_visual_projections[:,:,t] = v @ np.linalg.inv(v.T @ v) @ v.T
+                        visualnullspace_trial[t,:] = response_trial[t,:] - DV_visual_projections[:,:,t] @ response_trial[t,:].magnitude        # will result in (neurons,trajectory)
+
+                        
+                    acrossresponses_visualnullspace[aix].append(visualnullspace_trial)
+
+
+            
+            # perform the variable decoding in the nullspace of the visual DV
+
+            acrossdecoder_visualnullspace = nedi.get_responsedecoding(acrossresponses_visualnullspace,width=width)
+            pickle.dump(acrossdecoder_visualnullspace,open(cacheprefix+'subspaces/visualnullspacedecodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'wb'))
+        else:
+            acrossdecoder_visualnullspace = pickle.load(open(cacheprefix+'subspaces/visualnullspacedecodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+
+
+
+    if doplot:
+            
+        fig,ax = plt.subplots(1,len(taskaspects),figsize=(len(taskaspects)*12,1*8))
+        
+        for cx,comparison in enumerate(taskaspects):
+            if len(taskaspects)==1: axs = ax
+            else: axs = ax[cx]
+            # times = acrossdecoder_nullspace[1].analogsignals[0].times
+            
+            acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
+            acrossdecoder_visualnullspace = pickle.load(open(cacheprefix+'subspaces/visualnullspacedecodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+
+            figs.plottoaxis_decoderrocauc(acrossdecoder[:2],axs)       # plot the performance
+            figs.plottoaxis_decoderrocauc(acrossdecoder_visualnullspace[:2],axs,colorlist=['gold','rebeccapurple'])       # plot the performance
+            figs.plottoaxis_stimulusoverlay(axs,T)
+            figs.plottoaxis_chancelevel(axs,0.5)
+            
+            axs.set_title(comparison)
+
+
+        fig.suptitle('%s - original (orange), sameDVnullspace (red), visualDVspace (purple)'%(dn))
+
+
+
+        save = 0
+        if save:
+            fig.savefig(resultpath+'decoders,over,visual-nullspace,projectedactivities-%s-%s'%(dn,continuous_method)+ext)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def subspaces_decode_nullspacerecurrent(dn,block,onlyfirst=False):
+    # take the DV, and find its nullspace, then decode from its nullspace
+    # repeat until the 0 subspace is all that left
+    print('calculating recurrent projection nullspaces...')
+
+    recalculate = 1 or globalrecalculate
+    doplottrials = 0
+    doplot = 0 or globaldoplot
+
+
+    blv,bla = preprocess.getorderattended(dn)
+    comparisongroups = [ \
+                          [        [ [2,4],  [45],[] ],       [ [2,4],   [135], [] ]         ],\
+                          [        [ [2,4],  [],[5000] ],       [ [2,4],   [], [10000] ]         ],\
+                          [        [ [blv[1]],  [],[] ],       [ [bla[1]],   [], [] ]         ],\
                           [ [], [] ],
                        ]
     taskaspects = ['visual','audio','context','choice']            # this is only done for the context for now
@@ -3430,6 +5121,7 @@ def subspaces_decode_nullspacerecurrent(dn,block):
     
     if recalculate:
         for cx,comparison in enumerate(taskaspects):
+            if (not cx==2) and onlyfirst: continue
             print(comparison)
     
             # iteratively project onto smaller and smaller subspaces:
@@ -3438,6 +5130,8 @@ def subspaces_decode_nullspacerecurrent(dn,block):
 
             acrossdecoder_nullspaces = []
             for px in range(n_neurons-1):
+                if px>0 and onlyfirst: break
+
                 print('going for %d/%d orthogonal complement subspace'%(px+1,n_neurons))
     
         
@@ -3549,7 +5243,7 @@ def subspaces_decode_nullspacerecurrent(dn,block):
             print(ranks.mean(axis=1).ravel())
 
             # save the collection of recurrent decoders of all four variable over the current orthogonal complement subspace of the variable
-            pickle.dump((acrossdecoder_nullspaces,ranks),open(cacheprefix+'subspaces/nullspace,recurrent,decodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'wb'))
+            pickle.dump((acrossdecoder_nullspaces,ranks),open(cacheprefix+'subspaces/nullspace,recurrent%s,decodes-%s_%s_%s.pck'%(['','1'][onlyfirst],dn,comparison,continuous_method),'wb'))
         else:
             acrossdecoder_nullspaces,ranks = pickle.load(open(cacheprefix+'subspaces/nullspace,recurrent,decodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
 
@@ -3575,7 +5269,7 @@ def subspaces_decode_nullspacerecurrent(dn,block):
                 else:
                     acrossdecoder = acrossdecoder_nullspaces[px-1]
                     colorlists[1][1] = np.array([1,0,0.5])*(px/n_neurons/2)+np.array([0.25,0,0.12])
-                figs.plottoaxis_decoderrocauc(acrossdecoder[:2],axs,colorlist=colorlists[px>0],plottrain=False,onlysem=True,\
+                figs.plottoaxis_decoderrocauc(acrossdecoder[:2],axs,colorlist=colorlists[px>0],plottrain=False,onlysem=True,sem=False,\
                     smooth=[1],label='r %d'%(n_neurons-px),lw=[4,1][px>0])       # plot the performance
                 # axs.plot(acrossdecoder[1][:,0],lw=0.5,color=colorlists[px>0][1],alpha=0.5)       # plot the performance
                 # axs.legend(frameon=False)
@@ -3589,7 +5283,7 @@ def subspaces_decode_nullspacerecurrent(dn,block):
 
 
 
-        save = 1
+        save = 0 or globalsave
         if save:
             fig.savefig(resultpath+'decoders,over,dv-nullspace,recurrent,projectedactivities-%s-%s'%(dn,continuous_method)+ext)
 
@@ -3724,19 +5418,27 @@ def subspaces_neuralparticipation(dn,block):
     
     
     
-def subspaces_orthogonalcontrol_shuffle(dn,block):
+def subspaces_orthogonalcontrol_shuffle(dn,block,reducedtrials=False):
     
     # do a gradual decrease of trials corresponding to the task variable, and 
     # do several label shuffling and a random decoder
     # get mean and std vector of noise distributions
     # compare to mean std of task variable
     
-    recalculate = 0
-    doplot = 1
+    recalculate = 0 or globalrecalculate
+    doplot = 0 or globaldoplot
     
     # comparisongroups = [ [ [2,4], [], [] ]              ]#      fully random labels
     # allresponses = preprocess.collect_stimulusspecificresponses(block, comparisongroups)
 
+    if reducedtrials:
+        D = pd.read_csv(cacheprefix+'symmetry/'+'minimum,symmetric,trials.csv')
+        n_trials_minimum = D.loc[D['mouse']==dn,:].values[0][1]
+        reducedlabel = ',reduced'
+    else:
+        reducedlabel = ''
+
+    
     blv,bla = preprocess.getorderattended(dn)
     comparisongroups  = [   [ [ [2,4], [45],    [] ], [ [2,4],[135],     [] ]  ], \
                             [ [ [2,4],  [],[5000] ],  [ [2,4],   [],[10000] ]    ],    \
@@ -3763,21 +5465,30 @@ def subspaces_orthogonalcontrol_shuffle(dn,block):
             else:  # choice:
                 acrossresponses = preprocess.collect_stimulusspecificresponses_choice(block,dn)
 
+                    
+
             # n_grad = len(acrossresponses[0])+len(acrossresponses[1]) # this will allow for the first grads trials one by one, not proportions
             acrossdecoders = []
             for gx,g in enumerate(grads):   # we either do 1 resample run with gradually increasing number of trials to shuffle, or just all shuffled but more runs for averaging
+                if reducedtrials:
+                    acrossresponses_basis = []
+                    for aix in range(len(acrossresponses)):
+                        permindices = np.random.permutation(len(acrossresponses[aix]))
+                        acrossresponses_basis.append( [ acrossresponses[aix][trx] for trx in  permindices[:n_trials_minimum] ] )
+                else: acrossresponses_basis = acrossresponses
+
                 if n_resample<=1:
                     print(comparison,'%d/%d'%(g,n_grad))
-                    acrossdecoders.append( nedi.get_responsedecoding(acrossresponses,width=width,cv=True,shuffle=g/n_grad) )
+                    acrossdecoders.append( nedi.get_responsedecoding(acrossresponses_basis,width=width,cv=True,shuffle=g/n_grad) )
                 elif g==grads[-1]:
                     for rx in range(n_resample):
                         print('%s, resample %d/%d'%(comparison,rx+1,n_resample))
-                        acrossdecoders.append( nedi.get_responsedecoding(acrossresponses,width=width,cv=True,shuffle=g/n_grad) )
+                        acrossdecoders.append( nedi.get_responsedecoding(acrossresponses_basis,width=width,cv=True,rr='loo',shuffle=g/n_grad) )
                 
             if n_resample<=1:
-                pickle.dump(acrossdecoders,open(cacheprefix+'subspaces/shuffledecoders,gradual-%s-%d-%s_%s.pck'%(comparison,n_grad,continuous_method,dn),'wb'))
+                pickle.dump(acrossdecoders,open(cacheprefix+'subspaces/shuffledecoders,gradual-%s-%d%s-%s_%s.pck'%(comparison,n_grad,reducedlabel,continuous_method,dn),'wb'))
             else:
-                pickle.dump(acrossdecoders,open(cacheprefix+'subspaces/shuffledecoders,resampled-%s-full,r%d-%s_%s.pck'%(comparison,n_resample,continuous_method,dn),'wb'))
+                pickle.dump(acrossdecoders,open(cacheprefix+'subspaces/shuffledecoders,resampled-%s-full,r%d%s-%s_%s.pck'%(comparison,n_resample,reducedlabel,continuous_method,dn),'wb'))
 
     # else:
     #     acrossdecoders = pickle.load(open(cacheprefix+'subspaces/shuffledecoders,gradual-%s-%d-%s_%s.pck'%(comparison,n_grad,continuous_method,dn),'rb'))
@@ -4203,7 +5914,7 @@ def subspaces_leaveoneout(dn,block):
 
 
 
-def subspaces_behaviour_ACC(dn,block):
+def subspaces_behaviour_ACC(dn,block,area='acc/'):
     # learn stimulus DV
     # project activity to DV
     # show correct and error trials; are error trials closer to discrimination threshold than correct?
@@ -4213,6 +5924,10 @@ def subspaces_behaviour_ACC(dn,block):
     n_neuron = block.segments[0].analogsignals[0].shape[1]
 
     blv,bla = preprocess.getorderattended(dn)
+
+
+
+
     # comparisongroups  = [\
     #                         [ [ [blv[1]], [45],      [] ], [ [blv[1]],   [135],      [] ]  ], \
     #                         [ [ [blv[1]],   [],  [5000] ], [ [blv[1]],      [], [10000] ]  ], \
@@ -4230,6 +5945,8 @@ def subspaces_behaviour_ACC(dn,block):
 
 
 
+    # relevant irrelevant + congruent conflicting
+
     comparisongroups  = [\
                             [ [ [blv[1]], [45],      [] ], [ [blv[1]],   [135],      [] ]  ], \
                             [ [ [blv[1]],   [],  [5000] ], [ [blv[1]],      [], [10000] ]  ], \
@@ -4244,6 +5961,14 @@ def subspaces_behaviour_ACC(dn,block):
 
     taskaspects = ['visual,av','audio,av','visual,aa','audio,aa',\
                    'gonogo-congruent,av','gonogo-conflict,av','gonogo-congruent,aa','gonogo-conflict,aa']
+
+
+
+
+
+
+
+
 
 
     width = 50*pq.ms
@@ -4269,7 +5994,7 @@ def subspaces_behaviour_ACC(dn,block):
         activity.append(  preprocess.collect_stimulusspecificresponses(block, comparisongroups[cx]) )
         
         # collect decoders, already calculated, in this function we just display a different crossection:
-        acrossdecoder = pickle.load(open(cacheprefix+'acc/stimulus,relevant-irrelevant_%s_%s-%s.pck'%(comparison,dn,continuous_method),'rb'))
+        acrossdecoder = pickle.load(open(cacheprefix+'%sstimulus,relevant-irrelevant_%s_%s-%s.pck'%(area,comparison,dn,continuous_method),'rb'))
         w,w_mean = nedi.get_decoder_dv(acrossdecoder, n_neuron, n_preweightelements=7, timeaverage_start_dx=150, timeaverage_end_dx=150+150)
         W.append(w)
     
@@ -4356,7 +6081,7 @@ def subspaces_behaviour_ACC(dn,block):
 
 
 
-        if 1:
+        if 0:
 
             fig,ax = plt.subplots(1,2, figsize=(2*9,1*8))
             
@@ -4972,7 +6697,7 @@ def subspaces_PCA(dn,block,returnall=False,preon=0):
     
     if doplot:
         fig.suptitle(dn+' accuracies of decoders using only the best principal components\npca performed on the mean FR in %s activity; +random orthonormal baseline'%pcameanlabel)
-        save = 1
+        save = 0 or globalsave
         if save:
             fig.savefig(resultpath+'pcareduceddecoders+O,%s-%s-%dms%dms_%s'%(pcamean,continuous_method,T['dt'].magnitude,T['bin'].magnitude,dn)+ext)
 
@@ -5000,7 +6725,7 @@ def subspacedynamics_PCA(dn,block):
     # draw neural activity projections on the PCA axes throughout the trials
 
 
-    recalculate = 0 or globalrecalculate
+    # recalculate = 0 or globalrecalculate
     dump = 1
     doplot = 0 or globaldoplot
 
@@ -5009,18 +6734,19 @@ def subspacedynamics_PCA(dn,block):
                    ['steelblue','c','mediumvioletred','orange'] ]
 
     blv,bla = preprocess.getorderattended(dn)
-    pcagroups = [      [[2,4],[],[]]   ]         # use the multimodal blocks as activities
+    pcagroups = [      [[2,4],[],[]]   ]         # use only the multimodal blocks as activities
     comparisongroups  = [ \
                           [ [ [2,4],[45],    [] ], [ [2,4],[135],     [] ] ],\
                           [ [ [2,4],  [],[5000] ], [ [2,4],   [],[10000] ] ],\
-                          [ [  blv,  [],[] ],   [ bla,   [], [] ] ],\
+                          [ [  [blv[1]],  [],[] ],   [ [bla[1]],   [], [] ] ],\
                           [[],[]]   \
                         ]
 
     classnames = [['45°','135°'],['5kHz','10kHz'],['attend visual','attend audio'],['lick','withhold lick']]
     
-    
-    n_pc = 4
+    n_neurons = block.segments[0].analogsignals[0].shape[1]
+    n_pc = n_neurons
+    n_randortho = 20
     
     print('PCA to total concatenated activity ',dn)
 
@@ -5030,7 +6756,9 @@ def subspacedynamics_PCA(dn,block):
     responses = preprocess.collect_stimulusspecificresponses(block,pcagroups,'and')
     n_trials = len(responses[0])
     n_trajectory,n_neurons = responses[0][0].shape
-    X = np.array(responses[0])[:,T['start_idx']:T['end_idx'],:].reshape(-1,n_neurons)
+    responses_centered = np.array(responses[0]) - np.array(responses[0]).mean(axis=0)
+    # X = np.array(responses[0])[:,T['start_idx']:T['end_idx'],:].reshape(-1,n_neurons)
+    X = responses_centered[:,T['start_idx']:T['end_idx'],:].reshape(-1,n_neurons)
     _,E,V = nedi.pca(X,n_components=n_neurons)  # do all the possible PCA-s, but later use only the first n_pc ones
     print('PCA eigenvalues',E)
     print('neurons %d, PCs %d,'%(n_neurons,2),'    PCA transform shape',V.shape)
@@ -5039,9 +6767,10 @@ def subspacedynamics_PCA(dn,block):
     print(dn,  E/totalvariance)
     print('     ',np.cumsum(E/totalvariance))
 
-
+    Ms = nedi.get_randomorthocumulativeprojections(n_neurons,n_randortho) # get repeated orthogonal projection matrices
 
     projected_dynamics = []    # this will be (taskaspects,classes,[trials,2])
+    projected_random_dynamics = []    # this will be (taskaspects,classes,[trials,2])
     for cx,comparison in enumerate(taskaspects):
         # now project each activity onto the common PCs vectorspace
 
@@ -5058,12 +6787,22 @@ def subspacedynamics_PCA(dn,block):
 
 
         projected_dynamic = []
+        projected_random_dynamic = []
         for aix,classresponse in enumerate(acrossresponses):
             # project the entire dynamics trajectory onto the pcas axes for each trial
             X = np.dot(np.array(classresponse),V.T)  #    (trials,trajectory,pc) = (trials,trajectory,neurons) * (,,pc,neurons).T
             projected_dynamic.append(X)
+            
+            # project the entire dynamics trajectory onto repeated random dimensional axes for each trial
+            Xrands = []
+            for r in range(n_randortho):
+                Xrand = np.dot(np.array(classresponse),Ms[r].T)
+                Xrands.append(Xrand)
+            Xrands = np.array(Xrands)      # will hold n_randortho random projection of the same activity
+            projected_random_dynamic.append(Xrands)
         
         projected_dynamics.append(projected_dynamic)
+        projected_random_dynamics.append(projected_random_dynamic)
 
 
 
@@ -5097,7 +6836,8 @@ def subspacedynamics_PCA(dn,block):
 
 
     if dump:    # save for display in publications
-        pickle.dump((projected_dynamics,distances,responses[0][0].times),open(cacheprefix+'subspaces/subspacedynamics,3D-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
+        pickle.dump((projected_dynamics,distances,responses[0][0].times),open(cacheprefix+'subspaces/subspacedynamics,3D,unnormalized-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
+        pickle.dump(projected_random_dynamics,open(cacheprefix+'subspaces/subspacedynamics,randomortho,unnormalized-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
         
         
         
@@ -5545,11 +7285,11 @@ def subspacedynamics_PCA_signalnoisecorrelation(dn,block):
     # that is
     # 1) we take a task variable
     # 2) condition on one value of it
-    # 3) calculate the Covyiyj and EyiEyj
+    # 3) calculate the Cov y_i y_j and      E y_i E y_j
     # 4) we average and calc. covariance over the values of x:  Ex Covyiyj  and Covx EyiEyj
 
 
-    doplot = 1 or globaldoplot
+    doplot = 0 or globaldoplot
     dump = 1
 
     pcagroups = [      [[2,4],[],[]]   ]         # use the multimodal blocks as activities
@@ -5562,43 +7302,54 @@ def subspacedynamics_PCA_signalnoisecorrelation(dn,block):
     # calculate the PCA projector matrix, V, which will project to the first k principal component: X @ V[:,:k]
     
 
-    n_pc_display = 4
+    n_pc_display = 6
     # responses will be n_trials, n_trajectory, n_neurons
     responses_pca = np.array(preprocess.collect_stimulusspecificresponses(block,pcagroups,'and')[0])
     n_trials_full,n_trajectory,n_neurons = responses_pca.shape
-    X = responses_pca[:,T['start_idx']:T['end_idx'],:].reshape(-1,n_neurons)
+    responses_pca_centered = responses_pca - responses_pca.mean(axis=0)
+    X = responses_pca_centered[:,T['start_idx']:T['end_idx'],:].reshape(-1,n_neurons)                  # reshape to concatenate over all time points and trials
     Y,E,V = nedi.pca(X,n_components=n_neurons)
     
     # load projected activities
     # projected_dynamics will be (taskaspects)(taskclass)(trials,trajectory,pc) = (trials,trajectory,neurons) * (,,pc,neurons).T
-    projected_dynamics,_,times = pickle.load(open(cacheprefix+'subspaces/subspacedynamics,3D-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'rb'))
+    projected_dynamics,_,times = pickle.load(open(cacheprefix+'subspaces/subspacedynamics,3D,unnormalized-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'rb'))
+    # projected_random_dynamics will be (taskaspects)(taskclass)(n_random_ortho)(trials,trajectory,pc)
+    projected_random_dynamics = pickle.load(open(cacheprefix+'subspaces/subspacedynamics,randomortho,unnormalized-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'rb'))
+
+
     n_tasks = len(projected_dynamics)       # 4, should equal len(taskaspects)
-    n_classes = len(projected_dynamics[0])     #  2
+    n_classes = len(projected_dynamics[0])     #  2, assuming all signals are two-way possibilities
     n_trajectory = projected_dynamics[0][0].shape[1]
+    n_randortho = len(projected_random_dynamics[0][0])
     
     # projections_alltrials = (responses_pca @ V.T)[:,:,:n_pc]     # only the first few pc
     projections_alltrials = (responses_pca @ V.T)[:,:,:]           # project activities to all available pcs (# pc = # neurons)
 
     total_variance_concatpca = np.repeat(E[np.newaxis,:],n_trajectory,axis=0)
 
-    total_covariance_pca = np.array([ np.cov(projections_alltrials[:,t,:].T) for t in range(n_trajectory) ])
+    total_covariance_pca = np.array([ np.cov(projections_alltrials[:,t,:].T) for t in range(n_trajectory) ])   # find cov over trials for each trajectory points
     total_variance_pca = total_covariance_pca.diagonal(axis1=1,axis2=2)     # just count the variance, no need for covariance in the PCA space
-    print(total_variance_concatpca.shape)
+    print('concatpca variance shape (trajectories, pc id)', total_variance_concatpca.shape)
     
 
     # results collector:
-    correlations = np.zeros(( n_tasks,n_trajectory,60,5 ))  # avg. noise variance. and signal-average variance, and totals
+    correlations = np.zeros(( n_tasks,n_trajectory,60,5 ))  #(n_tasks,n_trajectory,n_possiblemaxpc,n_measures) # measures: avg. noise variance. and signal-average variance, and totals
+    randomorthogonal = np.zeros(( n_tasks,n_trajectory,60,2))  #(n_tasks,n_trajectory,n_possiblemaxpc,stats)  # this will only hold the signal variance for random
 
     for cx in range(n_tasks):
         print(taskaspects[cx])
         
         noise_covariance = []
         signal_average = []
+        random_signal_average = []
         for aix in range(n_classes):
             # print(cx+1,aix)
 
             n_trials,n_trajectory,n_pc = projected_dynamics[cx][aix].shape
             X = projected_dynamics[cx][aix]
+
+
+
             # print('    original data shape:',X.shape)
             # choose either:
             if 0:
@@ -5614,7 +7365,12 @@ def subspacedynamics_PCA_signalnoisecorrelation(dn,block):
             signal_average.append(   X.mean(axis=-2)  )   # assume the observation dimension and average over it (e.g. trials)
 
 
-        noise_covariance = np.array(noise_covariance)  #   this holds  n_class,n_trajectory,n_trials,n_pcs
+            # also add the random projections
+            random_signal_average.append(  [ projected_random_dynamics[cx][aix][r].mean(axis=0) for r in range(n_randortho)   ])
+            print(projected_random_dynamics[cx][aix][0].shape, len(random_signal_average[-1]))
+
+
+        noise_covariance = np.array(noise_covariance)  #   this holds  n_class,n_trajectory,n_pcs,n_pcs
         signal_average = np.array(signal_average) #   this holds  n_class,n_trajectory,n_pcs
         print('    per class shape',noise_covariance.shape, signal_average.shape)
         
@@ -5623,7 +7379,7 @@ def subspacedynamics_PCA_signalnoisecorrelation(dn,block):
         
         # signal_average_variance = signal_average.transpose(1,2,0).var(axis=2)
         # M = signal_average.transpose(2,1,0)
-        signal_average_covariance = np.einsum('...i,...k->...ik',signal_average,signal_average)      # create the outer product for the combinations of average activities
+        # signal_average_covariance = np.einsum('...i,...k->...ik',signal_average,signal_average)      # create the outer product for the combinations of average activities
         # signal_average_variance = np.trace(signal_covariance,axis1=2,axis2=3) / n_classes 
         signal_average_variance = signal_average.var(axis=0)    # variance over the values of the condition
         
@@ -5636,44 +7392,70 @@ def subspacedynamics_PCA_signalnoisecorrelation(dn,block):
         # print('timecourse average signal:')
         # print(signal_average_variance.mean(axis=0))
 
-        # total_covariance = average_noise_covariance + average_signal_covariance
+        # total_covariance = average_noise_covariance + signal_average_covariance
 
-        # Now we would cumulate the first couple of PCs, and register their cumulative variance, i.e. we are
+        # Now in theory we would cumulate the first couple of PCs, and register their cumulative variance, i.e. we are
         # only concerned with the expected values and the diagonals of the covariance matrix.
+
+        # correlations[cx,:,:,0] = average_noise_covariance.diagonal(axis1=1,axis2=2).cumsum(axis=1)
+        # correlations[cx,:,:,1] = signal_average_variance.diagonal(axis1=1,axis2=2).cumsum(axis=1)
+
         # Since the contribution of later PCs are small, we stick to not cumulative, so the plots are not identical
         
         correlations[cx,:,:n_pc,0] = average_noise_covariance.diagonal(axis1=1,axis2=2)
         correlations[cx,:,:n_pc,1] = signal_average_variance
-        # correlations[cx,:,:,0] = average_noise_covariance.diagonal(axis1=1,axis2=2).cumsum(axis=1)
-        # correlations[cx,:,:,1] = signal_average_variance.diagonal(axis1=1,axis2=2).cumsum(axis=1)
 
 
-        correlations[cx,:,:n_pc,2] = np.repeat(total_variance_pca[:,:n_pc].sum(axis=1)[:,np.newaxis],n_pc,axis=1)
+        # either sum or mean over the trajectory axis
+        # correlations[cx,:,:n_pc,2] = np.repeat(total_variance_pca[:,:n_pc].sum(axis=1)[:,np.newaxis],n_pc,axis=1)
+        correlations[cx,:,:n_pc,2] = total_variance_pca[:,:n_pc].cumsum(axis=1)
         correlations[cx,:,:n_pc,3] = np.repeat(total_variance_pca[:,:].sum(axis=1)[:,np.newaxis],n_pc,axis=1)
         correlations[cx,:,:n_pc,4] = np.repeat(total_variance_concatpca[:,:].sum(axis=1)[:,np.newaxis],n_pc,axis=1)
         
 
         # correlations[cx,:,:,3] = total_variance_neuron
 
-    if dump: # save the trajectory=time averaged values
+
+        # also calculate the signal variance for the random orthogonal projections
+        random_signal_average = np.array(random_signal_average) # (taskaspect,classes,randomprojections,dimension)
+        random_signal_average_variance = random_signal_average.var(axis=0).mean(axis=0)
+        randomorthogonal[cx,:,:n_pc,0] = random_signal_average_variance
+        randomorthogonal[cx,:,:n_pc,1] = random_signal_average.var(axis=0).std(axis=0)/np.sqrt(random_signal_average.shape[2])
+
+
+    if dump: # save this and the trajectory=time averaged values, used in publication Figure
         average_covariance = correlations.mean(axis=1)
-        pickle.dump((average_covariance,n_neurons),open(cacheprefix+'subspaces/noise+signal-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
+        pickle.dump((correlations,average_covariance,n_neurons),open(cacheprefix+'subspaces/noise+signal-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
+        pickle.dump(randomorthogonal,open(cacheprefix+'subspaces/randomorthogonal,signal-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
 
 
     if doplot:
         
-        fig,ax = plt.subplots(n_pc_display,n_tasks,figsize=(n_tasks*7,n_pc_display*7))
+        fig,ax = plt.subplots(n_pc_display+1,n_tasks,figsize=(n_tasks*9,(n_pc_display+1)*9))
 
         for cx,comparison in enumerate(taskaspects):
-            for j in range(n_pc_display):
-                axs = ax[j,cx]
+            for jx,j in enumerate(np.concatenate([ range(n_pc_display),[n_pc-1]])):
+                axs = ax[jx,cx]
+                axs_twinx = axs.twinx()
+
+                # single PC variances
+                axs.plot(times,correlations[cx,:,j,1],color=taskcolors[cx],lw=2,alpha=1,label='signal average variance PC%d'%(j+1))
+                axs.plot(times,correlations[cx,:,j,0],'--',color=taskcolors[cx],lw=2,label='average noise variance PC%d'%(j+1))
                 
-                axs.plot(times,correlations[cx,:,j,2],'grey',lw=2,label='total variance 4 pc')
-                axs.plot(times,correlations[cx,:,j,3],'black',lw=2,label='total variance all %d pc'%n_neurons)
-                axs.plot(times,correlations[cx,:,j,4],'--',color='grey',lw=1,label='total concat. variance all %d pc'%n_neurons)
+                # cumulative up-to-this PC variances
+                if j==0: toplot = correlations[cx,:,j,:]
+                else: toplot = correlations[cx,:,:j,:].sum(axis=1)
+                axs_twinx.plot(times,toplot[:,1],color=taskcolors[cx],lw=3,alpha=0.3,\
+                                  label='cumulated signal average variance %d PC'%(j+1))
+                axs_twinx.plot(times,toplot[:,0],'--',color='black',lw=2,label='cumulated average noise variance %d PC'%(j+1))
+                # check sum:
+                axs_twinx.plot(times,toplot[:,1]+toplot[:,0],color='red',lw=4,alpha=0.2,label='cum. signal + noise %d PC'%(j+1))
+
+                # cumulative total variances (sum of the two above), and grand total variances
+                axs_twinx.plot(times,correlations[cx,:,j,2],'grey',lw=2,label='cumulated total variance %d PC'%(j+1))
+                axs_twinx.plot(times,correlations[cx,:,j,3],'black',lw=3,label='total variance all (%d) PC'%n_neurons)
+                axs_twinx.plot(times,correlations[cx,:,j,4],color='black',lw=1,label='total concat. variance all (%d) PC'%n_neurons)
                 
-                axs.plot(times,correlations[cx,:,j,0],'--',color=taskcolors[cx],lw=2,alpha=0.5,label='average noise variance')
-                axs.plot(times,correlations[cx,:,j,1],color=taskcolors[cx],lw=3,alpha=0.8,label='signal average variance')
                 
                 # axs.plot(times,correlations[j,cx,:,1],lw=2,color=taskcolors[cx],alpha=0.8,\
                 #          label='average signal var.')
@@ -5682,19 +7464,25 @@ def subspacedynamics_PCA_signalnoisecorrelation(dn,block):
                 
                 figs.plottoaxis_stimulusoverlay(axs,T)
                 figs.setxt(axs)
-                figs.plottoaxis_chancelevel(axs)
+                # figs.plottoaxis_chancelevel(axs)
 
-                if cx==0 and j==0: axs.legend(frameon=False,ncol=1)
+                # if cx==0 and j==0: axs.legend(frameon=False,ncol=1)
+                axs.legend(frameon=False,ncol=1,loc='center left')
+                axs_twinx.legend(frameon=False,ncol=1,loc='upper right')
+                axs.tick_params(axis='y', labelcolor=taskcolors[cx])
 
-                if cx==0: axs.set_ylabel('PC %d\nvariance [SU]'%(j+1))
-                if j==0: axs.set_title(comparison)
+                if cx==0: axs.set_ylabel('PC %d\nvariance [Hz$^2$]'%(j+1))
+                if cx==n_tasks: axs_twinx.set_ylabel('$\sum$PC %d\ncum. variance [Hz$^2$]'%(j+1))
+                if jx==0: axs.set_title(comparison)
                     
                     
                     
             # fig.suptitle(dn+' '+comparison+'\nanc = average noise covariance (over pc),\nsc kl = average signal variance (over classes)')
-            fig.suptitle(dn+'        Total Variance (black) =\nAverage Noise Variance (color thin dash) + Variance of Signal Averages (color thick solid')
+            fig.suptitle(dn+'        Total Variance (black) =\nAverage Noise Variance (color and black dash) + Variance of Signal Averages (color solid)\n\n_')
 
-            save = 0
+            fig.tight_layout()
+
+            save = 1 or globalsave
             if save:
                 # fig.savefig(resultpath+'covariance-noise,signal-%s_%s-%dms%dms_%s'%(comparison,continuous_method,T['dt'].magnitude,T['bin'].magnitude,dn)+ext)
                 fig.savefig(resultpath+'covariance-noise,signal-perpcnc_%s-%dms%dms_%s'%(continuous_method,T['dt'].magnitude,T['bin'].magnitude,dn)+ext)
@@ -5718,7 +7506,7 @@ def subspacedynamics_decisionvector_basis(dn,block):
     # draw neural activity projections on the DBNV axes throughout the trials
 
 
-    recalculate = 0 or globalrecalculate
+    recalculate = 1 or globalrecalculate
     dump = 1
     doplot = 0 or globaldoplot
 
@@ -5749,18 +7537,29 @@ def subspacedynamics_decisionvector_basis(dn,block):
 
 
 
-    # projection basis vectors:
+    # projection basis vectors, choose one of the commented lines for a single run:
         
     # choose the order of the orthogonalization:
     # basisaspects = ['visual','context','choice']; basisaspectcolors = ['dodgerblue','fuchsia','gold']             # for context to be related to visual
+    # basisaspects = ['audio','context','choice']; basisaspectcolors = ['green','fuchsia','gold']                   # for context to be related to audio
     # basisaspects = ['choice','context','visual']; basisaspectcolors = ['gold','fuchsia','dodgerblue']             # for context to be related to choice
+
     # run this and the next separately for choice and context!
     # basisaspects = ['context','choiceattendvisual','visual']; basisaspectcolors = ['fuchsia','gold','dodgerblue']             # for context to be related to choice
-    basisaspects = ['context','choiceattendaudio','visual']; basisaspectcolors = ['fuchsia','gold','dodgerblue']             # for context to be related to choice
+    # basisaspects = ['context','choiceattendaudio','visual']; basisaspectcolors = ['fuchsia','gold','dodgerblue']             # for context to be related to choice
 
+    # run this and the next separately for stimulus V choice in their own attend blocks
+    basisaspects = ['visual','choiceattendvisual','context']; basisaspectcolors = ['dodgerblue','gold','fuchsia']
+    # basisaspects = ['audio','choiceattendaudio','context']; basisaspectcolors = ['green','gold','fuchsia']
+    
+    # these are not needed:
+    # # basisaspects = ['visual','choiceattendaudio','context']; basisaspectcolors = ['dodgerblue','gold','fuchsia']
+    # # basisaspects = ['audio','choiceattendvisual','context']; basisaspectcolors = ['green','gold','fuchsia']
+    
 
     # do the entire projection to the above basis:
     filenamesuffix = ''.join([ s[:2] for s in basisaspects ]).replace('o','x')
+    print(filenamesuffix)
     depth_idx = int((1500*pq.ms / T['dt']).magnitude)
     n_trajectory,n_neurons = block.segments[0].analogsignals[0].shape
     c_db_matrix = np.zeros((n_neurons,3))       # prepare the dbnv vector holder
@@ -5790,7 +7589,7 @@ def subspacedynamics_decisionvector_basis(dn,block):
         # now project each activity onto the common DBNVs vectorspace
 
         # if cx in [4,5,6]: continue
-        print(comparison)
+        # print(comparison)
         
         # collect neural responses
         if not comparison[:6]=='choice': # visual, audio, context:
@@ -5818,20 +7617,27 @@ def subspacedynamics_decisionvector_basis(dn,block):
 
 
 
-
+    print(filenamesuffix)
     # now project all multimodal trials with grouping, so that they can be selected by index
-    if filenamesuffix=='vicxch':   # 2 times double = 4 activitylist for the contexts.
+    if filenamesuffix=='vicxch':# or filenamesuffix=='vichcx':   # 2 times double = 4 activitylist for the contexts.
         projectionlist = [[[blv[1]],[45],[]],[[blv[1]],[135],[]],[[bla[1]],[45],[]],[[bla[1]],[135],[]]]
         responses = preprocess.collect_stimulusspecificresponses(block,projectionlist)
-    elif filenamesuffix=='cxchvi':  # choose the list so that it will be av hmcf or aa hmcf    8 length list of response lists; this will be run two times for projecting to each context's choice dbnv
+    elif filenamesuffix=='aucxch':# or filenamesuffix=='auchcx':   # 2 times double = 4 activitylist for the contexts.
+        projectionlist = [[[bla[1]],[],[5000]],[[bla[1]],[],[10000]],[[blv[1]],[],[5000]],[[blv[1]],[],[10000]]]
+        responses = preprocess.collect_stimulusspecificresponses(block,projectionlist)
+    elif filenamesuffix==['cxchvi']:  # choose the list so that it will be av hmcf or aa hmcf, an 8 length list of response lists; this will be run two times for projecting to each context's choice dbnv
         # projectionlist = [[[blv[1]],[45],[]],[[blv[1]],[135],[]],[[bla[1]],[45],[]],[[bla[1]],[135],[]]]
         responses = preprocess.collect_stimulusspecificresponses_choice_detailed(block,dn,onlyinblock=[blv[1]])
         responses.extend(preprocess.collect_stimulusspecificresponses_choice_detailed(block,dn,onlyinblock=[bla[1]]))
+    elif filenamesuffix in ['vichcx', 'auchcx']:  # choose the list so that it will be hmcf 4 length list of response lists context-matched; this will be run two times for projecting to each context's choice dbnv
+        bl = [blv[1],bla[1]][filenamesuffix[:2]=='au']
+        responses = preprocess.collect_stimulusspecificresponses_choice_detailed(block,dn,onlyinblock=[bl])
+        print(len(responses), '(', len(responses[0]), len(responses[1]), len(responses[2]), len(responses[3]), ')', responses[0][0].shape )
 
     # projections_av = [ np.dot(np.array(trial.analogsignals[0],V) for trial in block.segments if trial.annotations['block'] in [blv[1]]  ]
     #    (trials,trajectory,dbnv) = (trials,trajectory,neurons) * (,,dbnv,neurons).T
     projections_alltrials = [ [np.dot(np.array(responses_trial),V) for responses_trial in response ] for response in responses ]
-    # print(len(projections_alltrials),len(projections_alltrials[0]),projections_alltrials[0][0].shape)
+    print(len(projections_alltrials),len(projections_alltrials[0]),projections_alltrials[0][0].shape)
 
 
 
@@ -5869,8 +7675,11 @@ def subspacedynamics_decisionvector_basis(dn,block):
 
     if dump:    # save for display in publications
         # pickle.dump((projected_dynamics,distances,responses[0][0].times),open(cacheprefix+'subspaces/subspacedynamics,3D-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
-        choiceattendtype = basisaspects[1][12:13]
-        pickle.dump((projections_alltrials,B),open(cacheprefix+'subspaces/subspacedynamics,projected+dbnv,%s,%s-%s_%s-%dms.pck'%(filenamesuffix,'a'+choiceattendtype,dn,continuous_method,T['dt'].magnitude),'wb'))
+
+        pickle.dump((projections_alltrials,B),open(cacheprefix+'subspaces/subspacedynamics,projected+dbnv,%s-%s_%s-%dms.pck'%(filenamesuffix,dn,continuous_method,T['dt'].magnitude),'wb'))
+
+        # choiceattendtype = basisaspects[1][12:13]
+        # pickle.dump((projections_alltrials,B),open(cacheprefix+'subspaces/subspacedynamics,projected+dbnv,%s,%s-%s_%s-%dms.pck'%(filenamesuffix,'a'+choiceattendtype,dn,continuous_method,T['dt'].magnitude),'wb'))
         
         
         
@@ -6070,8 +7879,8 @@ def subspacedynamics_decisionvector_basis_initialconditions(dn,block):
     #                             NOGO corr rej. and   NOGO false alarm.
 
     recalculate = 0 or globalrecalculate
-    dump = 0
-    doplot = 1 or globaldoplot
+    dump = 1
+    doplot = 0 or globaldoplot
 
     taskaspects = ['attend visual','ignore visual']
     taskcolors = [ ['green','orange','lightseagreen','red'],\
@@ -6093,7 +7902,7 @@ def subspacedynamics_decisionvector_basis_initialconditions(dn,block):
 
 
     # projection basis vectors:
-    depth_idx = int((1500*pq.ms / T['dt']).magnitude)
+    depth_idx = int((3000*pq.ms / T['dt']).magnitude)
     n_trajectory,n_neurons = block.segments[0].analogsignals[0].shape
     basisaspects = ['visual','context']
     n_ba = len(basisaspects)
@@ -6114,10 +7923,14 @@ def subspacedynamics_decisionvector_basis_initialconditions(dn,block):
     # print( 'V',V.shape, 'B', B.shape )
 
 
+    # c_db_matrix projects to the 3 dbnvs each row:   c_db_matrix @ neural_input
+    Q,R = np.linalg.qr(c_db_matrix[:,::-1])     # save first axis as context Dv, and orthonormalized visual second
+    V_context = Q
 
 
         
     projected_dynamics = []    # this will be (tasks,classes,[trials,2])
+    projected_dynamics_context = []
     for cx,comparison in enumerate(taskaspects):
         # now project each activity onto the dbnv basis vectorspace
 
@@ -6127,20 +7940,24 @@ def subspacedynamics_decisionvector_basis_initialconditions(dn,block):
         acrossresponses = [acrossresponses[i] for i in [0,2,1,3]]  # reorder for h,m,cr,fa
 
         projected_dynamic = []
+        projected_dynamic_context = []
         for aix,classresponse in enumerate(acrossresponses):
             # project the entire dynamics trajectory onto the PCs axes for each trial
             if len(classresponse)>0:
                 X = np.dot(np.array(classresponse),V)  #    (trials,trajectory,dbnvs) = (trials,trajectory,neurons) * (,,neurons,dbnv)
+                X_context = np.dot(np.array(classresponse),V_context)  #    (trials,trajectory,dbnvs) = (trials,trajectory,neurons) * (,,neurons,dbnv)
             else:
                 X = np.empty((0,n_trajectory,n_ba))
             projected_dynamic.append(X)
+            projected_dynamic_context.append(X_context)
         
         projected_dynamics.append(projected_dynamic)
+        projected_dynamics_context.append(projected_dynamic_context)
 
 
 
     if dump:
-        pickle.dump( (projected_dynamics,V,B), open(cacheprefix+'subspaces/projections,dbnv-visual,context_%s.pck'%(dn),'wb'))
+        pickle.dump( (projected_dynamics,projected_dynamics_context,V,B), open(cacheprefix+'subspaces/projections,dbnv-visual,context,context,visual_%s.pck'%(dn),'wb'))
 
 
     if doplot:
@@ -6771,15 +8588,12 @@ def subspacedynamics_DVPCA(dn,block):
 
 
 
-        save = 1 or globalsave
+        save = 0 or globalsave
         if save:
             fig.savefig(resultpath+'context,DV,timecoursePCA-%s-%dms%dms_%s'%(continuous_method,T['dt'].magnitude,T['bin'].magnitude,dn)+ext)
 
 
-
-
-
-
+    return
 
 
 

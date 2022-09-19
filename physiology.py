@@ -8,6 +8,18 @@ Created on Fri Oct  2 10:16:45 2020
 
 
 
+from operator import index
+from numpy import bool8
+
+from quantities.quantity import _reconstruct_quantity
+from scipy.fft import next_fast_len
+from sqlalchemy import column
+from config import *
+
+import preprocess
+
+import sklearn.model_selection as skms
+
 
 
 
@@ -1325,5 +1337,2223 @@ def decoder_equalizedrunspeeddistribution(dn,block):
     return
 
 
+
+
+
+
+
+
+def getmovementpctimecourses(dn, multimodalonly=True):
+
+    starttime = T['starttime'].magnitude
+    stimtime = (T['stimendtime'] - T['stimstarttime']).magnitude
+    endtime = T['endtime'].magnitude
+    fps = T['videofps']
+
+    movementpcs = preprocess.loadvideopca(dn)
+    triallist = preprocess.loadexperimentdata(dn, multimodalonly=multimodalonly)
+    # triallist['start'] /= 1000
+    n_trials = triallist.values.shape[0]
+    n_pcs = movementpcs.values.shape[1]-1      # the first column is the timestamp
+    movementpcs['time'] *= 1000       # convert to milliseconds
+    timestampfps = np.arange( starttime, endtime, 1000./fps )   # milliseconds fps
+    ntimestamps = len(timestampfps)      # timestamps cap
+
+    # print(triallist)
+    # print(movementpcs)
+
+    # dimensions will be (trials,timecourse,pcs)
+    movementpcslist = np.zeros((n_trials,len(timestampfps),n_pcs))
+
+    # find each trial still in the video
+    for trx,trialstart in enumerate(triallist['start'][triallist['start']+stimtime<movementpcs['time'].iloc[-1]]):
+        slicemask = (movementpcs['time']>=trialstart+starttime) & (movementpcs['time']<trialstart+endtime)              # check if trial is in the video
+        if sum(slicemask)<ntimestamps: continue                           # if a trial is not fully within the video, skip
+        movementpcslist[trx,:,:] = (movementpcs[slicemask].iloc[:,1:]).iloc[:ntimestamps,:]     # skip the first column (time), and only 6 sec to enter
+
+    
+    return movementpcslist, timestampfps
+
+
+
+
+
+
+
+
+
+
+
+def display_movementpca(dn):
+
+    doplot = 0 or globaldoplot
+
+    triallist = preprocess.loadexperimentdata(dn, multimodalonly=True)
+    movementpcslist, timestampfps = getmovementpctimecourses(dn)          # movementpcslist dimensions are (trials,timecourse,pcs)
+
+    # return
+    print('movement video derived motion differential PCs')
+    print(movementpcslist.shape)
+    print(movementpcslist.mean(axis=0))
+
+
+    criteria = [[c,v,a] for c in [1,3] for v in [45,135] for a in [5000,10000]]
+    print(criteria)
+
+    maxpc = 2
+
+    X = []
+    ttx = []
+    for cx,c in enumerate(criteria):
+        mask = (triallist['block']==c[0]) & (triallist['degree']==c[1]) & (triallist['freq']==c[2])
+        X.append(movementpcslist[mask,:,:maxpc])
+        print('mask criteria sum', c, sum(mask))
+        ttx.append(np.where(mask)[0][0])
+    
+    
+    if doplot:
+        colors = ['navy','seagreen','pink','purple','darkgreen','turquoise','orange','gold']
+        fig, ax = plt.subplots(2,4,figsize=(4*8,2*8))
+
+        for hx in range(2):
+            for wx in range(4):
+                ix = hx*4+wx
+                c = criteria[ix]
+                axs = ax[hx,wx]
+                for k in range(maxpc):
+                    m = X[ix][:,:,k].mean(axis=0)
+                    e = X[ix][:,:,k].std(axis=0)/np.sqrt(X[ix][:,:,k].shape[0])
+                    axs.plot(timestampfps, m,color=colors[ix],alpha=1.-k/(maxpc+1), label='pc%d'%k)
+                    axs.fill_between(timestampfps, m-e, m+e, color=colors[ix], alpha=1./3-k/(3*maxpc+1))
+                    # axs.plot(timestampfps, movementpcslist[ttx[ix],:,k],color=colors[ix],alpha=1.-k*0.2, label='pc%d'%k)
+
+                if wx==0: axs.set_ylabel('trialaveraged PC 1-%d +/-sem'%maxpc)
+                axs.set_title('%s %d %d'%(['visual','audio'][c[0]==3],c[1],c[2]))
+                figs.setxt(axs)
+                figs.plottoaxis_stimulusoverlay(axs,T)
+                # print(hx,wx, X[ix][:,:,:maxpc].mean(axis=(0,1)) )
+
+
+        fig.suptitle('%s, PC1..%d of movement video, multimodal trials'%(dn,maxpc))
+
+
+        save = 0 or globalsave
+        if save:
+            fig.savefig(resultpath+'movementvideo-PCs-visualcolors_%s'%(dn)+ext)     #PCs, all
+
+
+
+
+
+
+
+
+
+
+
+
+
+def decode_movementpca(dn,block):
+    # create bins of 20 Hz (fps) for neural data
+    # use 20 Hz video PC timecourses
+    # decode one from the other
+    # test shared covariances
+
+
+    recalculatecorrelations = 1
+    recalculateneuraltomotiondecode = 1
+    recalculatemotiontoneuraldecode = 1
+
+    doplot = 0 or globaldoplot
+
+    th = 0.05   # significance threshold
+
+
+    triallist = preprocess.loadexperimentdata(dn, multimodalonly=True)
+    movementpcslist, timestampfps = getmovementpctimecourses(dn)          # movementpcslist dimensions are (trials,timecourse,pcs)
+
+    allcomplextrials = [ [[2,4], [], []] ]
+    neuralactivity = preprocess.collect_stimulusspecificresponses(block, allcomplextrials)
+    downsamplerate = 5   # length * binsize / fps
+    neuralactivity = np.array(neph.downsamplesignals(neuralactivity, downsamplerate)[0])
+
+    n_trials = neuralactivity.shape[0]
+    n_timecourse = neuralactivity.shape[1]
+    n_neurons = neuralactivity.shape[2]
+    n_pcs = movementpcslist.shape[2]
+
+    print('downsampled neural activity: ', neuralactivity.shape)
+    print('movement PCs: ', movementpcslist.shape)
+
+
+
+
+    # calculate per neuron per pc correlations along the trials
+    if recalculatecorrelations and globalrecalculate:
+        rhos = np.zeros((n_timecourse,n_pcs,n_neurons))
+        ps = np.zeros((n_timecourse,n_pcs,n_neurons))
+        for nx in range(n_neurons):
+            for px in range(n_pcs):
+                # if nx>10 or px>6: break
+                for tx in range(n_timecourse):
+                    rho,p = sp.stats.linregress(neuralactivity[:,tx,nx], movementpcslist[:,tx,px])[2:4]     # rho and p
+                    rhos[tx,px,nx] = rho
+                    ps[tx,px,nx] = p
+                # print('neuron %d, pc %d: mean(rho_t)=%4.2f, mean(p_t)=%6.5f'%(nx+1, px+1, rhos[:,nx,px].mean(), ps[:,nx,px].mean()) )
+        pickle.dump((rhos,ps), open(cacheprefix+'locomotion/motionpcs,neurons-correlations,timecourse_%s.pck'%dn, 'wb'))
+    else:
+        rhos,ps = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-correlations,timecourse_%s.pck'%dn, 'rb'))
+    print('num significant:', np.sum(ps<=th), '/', n_timecourse*n_neurons*n_pcs)
+
+
+
+
+
+
+    # decode motion from neurons
+    if recalculateneuraltomotiondecode and globalrecalculate:
+        # accuracies will be (time,pcs,traintest,stats)
+        accuraciesnm,coefsnm = nedi.get_linearregressionmultivariate(neuralactivity,movementpcslist,timestampfps,'regression')
+        pickle.dump((accuraciesnm,coefsnm), open(cacheprefix+'locomotion/motionpcs,neurons-decoder,neuraltomotion,timecourse_%s.pck'%dn, 'wb'))
+    else:
+        accuraciesnm,coefsnm = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-decoder,neuraltomotion,timecourse_%s.pck'%dn, 'rb'))
+
+
+
+    # decode neurons from motion (glm)
+    if recalculatemotiontoneuraldecode and globalrecalculate:
+        # accuracies will be (time,neurons,traintest,stats)
+        accuraciesmn,coefsmn = nedi.get_linearregressionmultivariate(movementpcslist,neuralactivity,timestampfps,'regression')
+        pickle.dump((accuraciesmn, coefsmn), open(cacheprefix+'locomotion/motionpcs,neurons-decoder,motiontoneural,timecourse_%s.pck'%dn, 'wb'))
+    else:
+        accuraciesmn,coefsmn = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-decoder,motiontoneural,timecourse_%s.pck'%dn, 'rb'))
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    if doplot and True:
+        n_pcs = 6
+        n_neurons = 10
+        fig, ax = plt.subplots(n_pcs,n_neurons,figsize=(n_neurons*12,n_pcs*12))
+        fig.subplots_adjust(wspace=0.,hspace=0.)
+
+
+        for nx in range(n_neurons):
+            for px in range(n_pcs):
+                axs = ax[px,nx]
+                snf = ps[:,px,nx]<=th # significance mask
+
+                axs.plot(timestampfps, rhos[:,px,nx],color='orange',lw=2,alpha=0.8,label='r')
+                axs.plot(timestampfps[snf], rhos[snf,px,nx],'.',color='orange',lw=2,alpha=1)
+                axs.set_ylim(-1,1)
+                if px<n_pcs-1: axs.set_xticklabels([])
+                if nx>0: axs.set_yticklabels([])
+
+                axst = axs.twinx()
+                axst.semilogy(timestampfps, ps[:,px,nx],color='slategrey', lw=2,alpha=0.8,label='p')
+                axst.semilogy(timestampfps[snf], ps[snf,px,nx],'.',color='slategrey', lw=2,alpha=1)
+                axst.semilogy([timestampfps[0],timestampfps[-1]],[th,th],'--',lw=1,color='slategrey',alpha=0.7)
+                axst.set_ylim(1e-5,1)
+                if nx<n_neurons-1: axst.set_yticklabels([])
+
+                # if px==0 and nx==0: axs.legend(frameon=False)
+        
+        
+        save = 0 or globalsave
+        if save:
+            fig.savefig(resultpath+'neural-movement-correlations_%s'%(dn)+ext)     #PCs, all
+
+    
+
+
+
+
+    if doplot and True:
+
+        colors = ['dodgerblue','orange']
+        labels = ['train','test']
+        fig, ax = plt.subplots(5,5,figsize=(5*8,5*8))
+
+        for hx in range(5):
+            for wx in range(5):
+                px = hx*5+wx
+                axs = ax[hx,wx]
+
+                for k in [0,1]:
+                    m = accuraciesmn[:,px,k,0]
+                    e = accuraciesmn[:,px,k,2]
+                    axs.plot(timestampfps, m, color=colors[k], lw=3,label=labels[k])
+                    axs.fill_between(timestampfps, m-e, m+e, color=colors[k], alpha=0.3)
+
+                if wx==0 and hx==0: axs.legend(frameon=False)
+                figs.setxt(axs)
+                axs.set_ylim(-2,1)
+                figs.plottoaxis_stimulusoverlay(axs,T)
+                figs.plottoaxis_chancelevel(axs)
+    
+
+                axs.set_title('PC %d'%(px+1))
+                if wx==0: axs.set_ylabel('$R^2$')
+
+
+
+        fig.suptitle('%s   neurons -> diff. motion PCs linear regression '%dn)
+
+        save = 0 or globalsave
+        if save:
+            fig.savefig(resultpath+'neural-movement-decoder,n,m_%s'%(dn)+ext)     #PCs, all
+
+
+
+
+
+    if doplot and True:
+    
+        colors = ['dodgerblue','orange']
+        labels = ['train','test']
+        fig, ax = plt.subplots(5,9,figsize=(9*8,5*8))
+
+        for hx in range(5):
+            for wx in range(9):
+                nx = hx*9+wx
+                if nx>43: break
+                axs = ax[hx,wx]
+                for k in [0,1]:
+                    m = accuraciesmn[:,nx,k,0]
+                    e = accuraciesmn[:,nx,k,2]
+                    axs.plot(timestampfps, m, color=colors[k], lw=3,label=labels[k])
+                    axs.fill_between(timestampfps, m-e, m+e, color=colors[k], alpha=0.3)
+
+                if wx==0 and hx==0: axs.legend(frameon=False)
+                figs.setxt(axs)
+                axs.set_ylim(-2,1)
+                figs.plottoaxis_stimulusoverlay(axs,T)
+                figs.plottoaxis_chancelevel(axs)
+    
+
+                axs.set_title('neuron %d'%(nx+1))
+                if wx==0: axs.set_ylabel('$R^2$')
+
+
+
+        fig.suptitle('%s   diff. motion PCs -> neurons linear regression '%dn)
+
+        save = 0 or globalsave
+        if save:
+            fig.savefig(resultpath+'neural-movement-glm,m,n_%s'%(dn)+ext)     #neurons, all
+
+
+
+    return
+
+
+
+
+
+
+def decode_movementpca_tasks(dn):
+    # use 20 Hz video PC timecourses
+    # decode task variables (visual,audio,context,choice) from it
+
+    recalculate = 0 or globalrecalculate
+    doplot = 0 or globaldoplot
+
+    # setup stimulus:
+    blv,bla = preprocess.getorderattended(dn)
+    comparisongroups  = [   [ [ [], [45],    [] ],        [    [],[135],     [] ]  ], \
+                            [ [ [], [],    [5000] ],        [    [],[],     [10000] ]  ], \
+                            [ [ [blv[1]],  [],[] ], [ [bla[1]],   [],[] ]    ],     \
+                            [ [True], [False] ], \
+                            #[ [ [bla[0]],  [],[5000] ], [ [bla[0]],   [],[10000] ]    ],     \
+                            [ [], [] ],     \
+                        ]
+    taskaspects = ['visual','audio','context','choice','shuffled']   #'simpleaudio',
+    columnnames = ['degree','freq','block','action','']    # 'freq',
+    class1value = [45,5000,blv[1],True,0]    # 5000
+
+    triallist = preprocess.loadexperimentdata(dn, multimodalonly=True)
+    triallist['block'] += 1
+    movementpcslist, timestampfps = getmovementpctimecourses(dn)          # movementpcslist dimensions are (trials,timecourse,pcs)
+    # excludepc_indices = np.array([])
+    # includepc_indices = np.array([ px for px in range(movementpcslist.shape[2]) if px not in excludepc_indices ])
+    # movementpcslist = movementpcslist[:,:,includepc_indices]
+    n_trials,n_timestamps,n_features = movementpcslist.shape
+    n_targets = 1
+
+
+
+    accuracylist = []
+    coeflist = []
+    if recalculate:
+        accuracies = np.zeros((n_timestamps,n_targets,2,3,2,n_features,len(taskaspects)))
+        coefs = np.zeros((n_timestamps,n_targets,n_features,3,2,n_features,len(taskaspects)))
+        for cx,task in enumerate(taskaspects):
+            print(task)
+            comparisonmask = []
+            if cx<4:
+                for comparison in comparisongroups[cx]:
+                    if task != 'choice':
+                        comparisonmask.append( \
+                        ( (triallist['block'].isin(comparison[0])) | (len(comparison[0])==0) ) & \
+                        ( (triallist['degree'].isin(comparison[1])) | (len(comparison[1])==0) ) & \
+                        ( (triallist['freq'].isin(comparison[2])) | (len(comparison[2])==0) ) )
+                    else:
+                        comparisonmask.append( triallist['action'].isin(comparison) )
+
+                targets = np.hstack([ triallist[columnnames[cx]][comparisonmask[i]]==class1value[cx] for i in [0,1]  ])
+                predictors = np.vstack([movementpcslist[comparisonmask[i],:,:] for i in [0,1]])
+            # elif cx==4: # simple audio in single modality audio; this only works once single trial PCAs are calculated as well
+            #     triallist_alltrials = preprocess.loadexperimentdata(dn, multimodalonly=False)
+            #     triallist_alltrials['block'] += 1
+            #     mask_simpleaudio = triallist_alltrials['block']==bla[0]
+            #     movementpcslist_alltrials, _ = getmovementpctimecourses(dn, multimodalonly=False)
+            #     predictors = movementpcslist_alltrials[mask_simpleaudio,:,:]
+            #     targets = triallist_alltrials[mask_simpleaudio][columnnames[cx]]==class1value[cx]
+            elif cx==4: # shuffle
+                L = movementpcslist.shape[0]
+                targets = np.hstack([ np.ones(L//2), np.zeros(L//2) ])[np.random.permutation(L)]
+                predictors = movementpcslist
+
+            # fill out the targets axes, with dimensions = (observations,timepoints,features)
+            targets = np.tile(targets, [1,len(timestampfps),1])
+            targets = np.swapaxes(targets, 0, 2)
+
+            # for px in np.arange(n_features-1,n_features-3,-1):
+            # for px in np.arange(3-1,-1,-1):
+            for px in np.arange(n_features):
+                pcslice = slice(px,n_features)   # cut the last px number of PCs
+                    
+                # only use one pc from back to front
+                accuracyo,coefo = nedi.get_linearregressionmultivariate(predictors[:,:,px][:,:,np.newaxis],targets,timestampfps,'classification')
+                # cumulatively use more and more pcs from back to front
+                if px==n_features-1:
+                    accuracyc,coefc = accuracyo,coefo
+                else:
+                    accuracyc,coefc = nedi.get_linearregressionmultivariate(predictors[:,:,pcslice],targets,timestampfps,'classification')
+
+                # (n_timestamps,n_targets,train/test,stats,one/cumulative,pcused,task)
+                accuracies[:,:,:,:,0,px,cx] = accuracyo
+                accuracies[:,:,:,:,1,px,cx] = accuracyc
+                # (n_timestamps,n_targets,n_features,stats,one/cumulative,pcused,task)
+                coefs[:,:,px:n_features,:,0,px,cx] = coefo
+                coefs[:,:,px:n_features,:,1,px,cx] = coefc
+
+            
+
+        pickle.dump((accuracies,coefs), open(cacheprefix+'locomotion/motionpcs,variables-decreasing-decoder,timecourse_%s.pck'%(dn), 'wb'))
+    else:
+        accuracies,coefs = pickle.load(open(cacheprefix+'locomotion/motionpcs,variables-decreasing-decoder,timecourse_%s.pck'%(dn), 'rb'))
+
+    
+
+
+    print(accuracies.shape)
+    print(coefs.shape)
+
+    if doplot:
+    
+        n_displaypc = 6
+        labels = ['train','test']
+        taskcolors = ['navy','darkgreen','mediumvioletred','darkorange','green','red']
+        n_tasks = len(taskaspects)
+        
+        fig, ax = plt.subplots(1+n_displaypc,n_tasks,figsize=(n_tasks*12,(1+n_displaypc)*8))
+
+        for cx,task in enumerate(taskaspects):
+            colors = ['grey',taskcolors[cx]]
+            axs = ax[0,cx]
+            for k in [0,1]:
+                m = accuracies[:,0,k,0,1,0,cx]         # just one dim target on 2nd dimension
+                e = accuracies[:,0,k,2,1,0,cx]
+                axs.plot(timestampfps, m, color=colors[k], lw=3)
+                axs.fill_between(timestampfps, m-e, m+e, color=colors[k], alpha=0.3)
+
+            figs.setxt(axs)
+            axs.set_ylim(0.45,1.05)
+            figs.plottoaxis_stimulusoverlay(axs,T)
+            figs.plottoaxis_chancelevel(axs,0.5)
+
+
+            axs.set_title(task)
+            if cx==0: axs.set_ylabel('accuracy')
+
+
+
+            for nx in range(min(n_features,n_displaypc)):
+                axs = ax[1+nx,cx]
+                m = coefs[:,0,nx,0,1,0,cx]
+                e = coefs[:,0,nx,2,1,0,cx]
+                axs.plot(timestampfps, m, color=taskcolors[cx])
+                axs.fill_between(timestampfps, m-e, m+e, color=taskcolors[cx], alpha=0.3)
+                figs.setxt(axs)
+                axs.set_ylim(-1.5,1.5)
+                figs.plottoaxis_stimulusoverlay(axs,T)
+                figs.plottoaxis_chancelevel(axs)
+                if cx==0: axs.set_ylabel('weight PC %d'%(nx+1))
+
+
+        fig.suptitle('%s   diff. motion PCs -> task variables logistic regression '%dn)
+
+        save = 0 or globalsave
+        if save:
+            fig.savefig(resultpath+'motionpcs,variables-decoder,timecourse_%s'%(dn)+ext)     #neurons, all
+
+
+
+
+        # show the 
+        fig, ax = plt.subplots(6,7,figsize=(7*12,6*8))
+        cx = 2   # context only
+        for hx in range(7):
+            for wx in range(7):
+                px = hx*7+wx
+                if px>=n_features: break
+
+
+                axs = ax[hx,wx]
+                for k in [0,1]:
+                    for ox in [1,0]:   # only and up until
+                        colors = [['grey','darkgrey'][ox],['rebeccapurple','mediumvioletred'][ox]]
+                        labels = ['only PC %d'%(px+1), 'PC %d-%d'%(px+1,n_features)]
+                        m = accuracies[:,0,k,0,ox,px,cx]         # just one dim target on 2nd dimension
+                        e = accuracies[:,0,k,2,ox,px,cx]
+                        axs.plot(timestampfps, m, color=colors[k], lw=3, label=labels[ox]+[' train',' test'][k])
+                        axs.fill_between(timestampfps, m-e, m+e, color=colors[k], alpha=0.3)
+
+                figs.setxt(axs)
+                axs.set_ylim(0.45,1.05)
+                figs.plottoaxis_stimulusoverlay(axs,T)
+                figs.plottoaxis_chancelevel(axs,0.5)
+
+                axs.legend(frameon=False)
+                if cx==0: axs.set_ylabel('accuracy')
+
+
+
+
+        fig.suptitle('%s   diff. motion reverse cumulative and single PCs -> context logistic regression '%dn)
+
+        save = 0 or globalsave
+        if save:
+            fig.savefig(resultpath+'motionpcs,context,multipcs-decoder,timecourse_%s'%(dn)+ext)     #neurons, all
+
+
+
+
+
+
+
+
+
+
+
+
+
+def subspace_decode_motiontoneuron_reducedrank(dn, block):
+    # create bins of 20 Hz (fps) for neural data
+    # use 20 Hz video PC timecourses
+    # reduced rank linear regression of neurons from motion
+    # test for saturating rank
+
+    recalculate = 0 or globalrecalculate
+    doplot = 0 or globaldoplot
+
+    
+
+    movementpcslist, timestampfps = getmovementpctimecourses(dn)          # movementpcslist dimensions are (trials,timecourse,pcs)
+
+
+    allcomplextrials = [ [[2,4], [], []] ]
+    neuralactivity = preprocess.collect_stimulusspecificresponses(block, allcomplextrials)
+    downsamplerate = 5   # length * binsize / fps
+    neuralactivity = np.array(neph.downsamplesignals(neuralactivity, downsamplerate)[0])
+
+    n_trials = neuralactivity.shape[0]
+    n_timecourse = neuralactivity.shape[1]
+    n_neurons = neuralactivity.shape[2]
+    n_pcs = movementpcslist.shape[2]
+    maxrank = min(n_neurons, n_pcs)
+
+    print('downsampled neural activity: ', neuralactivity.shape)
+    print('movement PCs: ', movementpcslist.shape)
+
+
+    # trial timepoints concatenated, keep a singleton time dimension
+    movementpcslistconcat = np.expand_dims(np.reshape(movementpcslist, (-1,n_pcs)), axis=1)
+    neuralactivityconcat = np.expand_dims(np.reshape(neuralactivity, (-1,n_neurons )), axis=1)
+
+
+    
+    # calculate in 1 sec bins
+    broadsamplerate = 20
+    neuralactivitylowres = neph.downsamplearray(neuralactivity, broadsamplerate, axis=1)    # gather spike counts in 1 sec bins
+    movementpcslistlowres = neph.downsamplearray(movementpcslist, broadsamplerate, axis=1)    # average movement PCs in 1 sec bins
+    n_timecourse_lowres = neuralactivitylowres.shape[1]
+    timestampfpslowres = timestampfps[::broadsamplerate]
+    timestampfpslowres += ((timestampfpslowres[1] - timestampfpslowres[0])//2)
+    
+    
+    
+    # decode neurons from motion (glm)
+    if recalculate:
+        # accuracies will be (time,traintest,stats,ranks)
+        # coefs will be (time,n_targets,n_predictors,stats,ranks)
+
+        # motion -> neural
+        # timecourse
+        accuraciesmnranks = np.zeros((n_timecourse,2,3,maxrank))
+        coefsmnranks = np.zeros((n_timecourse,n_neurons,n_pcs,3,maxrank))
+        # concatenate
+        accuraciesmnranksconcat = np.zeros((1,2,3,maxrank))
+        coefsmnranksconcat = np.zeros((1,n_neurons,n_pcs,3,maxrank))
+        # low resolution
+        accuraciesmnrankslowres = np.zeros((n_timecourse_lowres,2,3,maxrank))
+        coefsmnrankslowres = np.zeros((n_timecourse_lowres,n_neurons,n_pcs,3,maxrank))
+
+
+        # neural -> motion
+        # timecourse
+        accuraciesnmranks = np.zeros((n_timecourse,2,3,maxrank))
+        coefsnmranks = np.zeros((n_timecourse,n_pcs,n_neurons,3,maxrank))
+        # concatenate
+        accuraciesnmranksconcat = np.zeros((1,2,3,maxrank))
+        coefsnmranksconcat = np.zeros((1,n_pcs,n_neurons,3,maxrank))
+        # low resolution
+        accuraciesnmrankslowres = np.zeros((n_timecourse_lowres,2,3,maxrank))
+        coefsnmrankslowres = np.zeros((n_timecourse_lowres,n_pcs,n_neurons,3,maxrank))
+
+
+        for r in range(maxrank):
+            print('rank %d, '%r)
+
+            # timecourse
+            accuraciesmn,coefsmn = nedi.get_linearregressionmultivariate(movementpcslist,neuralactivity,timestampfps,'reducedrankregression', rank=r)
+            accuraciesmnranks[:,:,:,r] = accuraciesmn[:,0,:,:]
+            coefsmnranks[:,:,:,:,r] = coefsmn
+            accuraciesnm,coefsnm = nedi.get_linearregressionmultivariate(neuralactivity,movementpcslist,timestampfps,'reducedrankregression', rank=r)
+            accuraciesnmranks[:,:,:,r] = accuraciesnm[:,0,:,:]
+            coefsnmranks[:,:,:,:,r] = coefsnm
+            accuraciesmnlowres,coefsmnlowres = nedi.get_linearregressionmultivariate(movementpcslistlowres,neuralactivitylowres,timestampfpslowres,'reducedrankregression', rank=r)
+            accuraciesmnrankslowres[:,:,:,r] = accuraciesmnlowres[:,0,:,:]
+            coefsmnrankslowres[:,:,:,:,r] = coefsmnlowres
+            accuraciesnmlowres,coefsnmlowres = nedi.get_linearregressionmultivariate(neuralactivitylowres,movementpcslistlowres,timestampfpslowres,'reducedrankregression', rank=r)
+            accuraciesnmrankslowres[:,:,:,r] = accuraciesnmlowres[:,0,:,:]
+            coefsnmrankslowres[:,:,:,:,r] = coefsnmlowres
+
+
+            # concatenated
+            accuraciesmnconcat,coefsmnconcat = nedi.get_linearregressionmultivariate(movementpcslistconcat,neuralactivityconcat,timestampfps,'reducedrankregression', rank=r)
+            accuraciesmnranksconcat[:,:,:,r] = accuraciesmnconcat[:,0,:,:]
+            coefsmnranksconcat[:,:,:,:,r] = coefsmnconcat
+            accuraciesnmconcat,coefsnmconcat = nedi.get_linearregressionmultivariate(neuralactivityconcat,movementpcslistconcat,timestampfps,'reducedrankregression', rank=r)
+            accuraciesnmranksconcat[:,:,:,r] = accuraciesnmconcat[:,0,:,:]
+            coefsnmranksconcat[:,:,:,:,r] = coefsnmconcat
+
+
+        pickle.dump((accuraciesmnranks, coefsmnranks, accuraciesnmranks, coefsnmranks, accuraciesmnrankslowres, coefsmnrankslowres),\
+                open(cacheprefix+'locomotion/motionpcs,neurons-rrr,motiontoneural,timecourse_%s.pck'%dn, 'wb'))
+        pickle.dump((accuraciesmnranksconcat, coefsmnranksconcat, accuraciesnmranksconcat, coefsnmranksconcat, accuraciesnmrankslowres, coefsnmrankslowres),\
+                open(cacheprefix+'locomotion/motionpcs,neurons-rrr,motiontoneural,concatenated_%s.pck'%dn, 'wb'))
+    else:
+        accuraciesmnranks, coefsmnranks, accuraciesnmranks, coefsnmranks, accuraciesmnrankslowres, coefsmnrankslowres = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-rrr,motiontoneural,timecourse_%s.pck'%dn, 'rb'))
+        accuraciesmnranksconcat, coefsmnranksconcat, accuraciesnmranksconcat, coefsnmranksconcat, accuraciesnmrankslowres, coefsnmrankslowres = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-rrr,motiontoneural,concatenated_%s.pck'%dn, 'rb'))
+
+
+
+    # plot
+
+    if doplot:
+        colors = ['dodgerblue','orange']
+        colorlist = plt.cm.viridis( np.linspace(1.0, 0.33, maxrank) )
+        labels = ['train','test']
+        titles = ['motion->neural','neural->motion']
+        concattitles = [' timecourse',' concatenated','lowres']
+
+        fig, ax = plt.subplots(2,3,figsize=(3*12,2*8))
+
+
+        for ct,(accuraciesranks,accuraciesranksconcat,accuraciesrankslowres) in enumerate(\
+                  zip((accuraciesmnranks,accuraciesnmranks),\
+                      (accuraciesmnranksconcat,accuraciesnmranksconcat),\
+                      (accuraciesmnrankslowres,accuraciesnmrankslowres))):
+            
+            
+            axs = ax[ct,0]
+            for r in range(maxrank):
+                colors = ['grey',colorlist[r]]
+                labels = [None, 'rank %d'%r]
+                for k in [0,1]:
+                    m = accuraciesranks[:,k,0,r]
+                    e = accuraciesranks[:,k,2,r]
+                    axs.plot(timestampfps, m, color=colors[1], lw=1, label=labels[k])
+                    axs.fill_between(timestampfps, m-e, m+e, color=colors[k], alpha=0.3)
+
+            axs.legend(frameon=False, loc='upper left', ncol=4, fontsize=8)
+            figs.setxt(axs)
+            axs.set_ylim(-4,1)
+            figs.plottoaxis_stimulusoverlay(axs,T)
+            figs.plottoaxis_chancelevel(axs)
+            axs.set_title(titles[ct]+concattitles[ct])
+
+
+            axs.set_ylabel('$R^2$')
+
+
+
+
+            axs = ax[ct,1]
+
+            colors = ['grey','rebeccapurple']
+            labels = [None, 'rank %d'%r]
+            ranklist = np.arange(maxrank)+1
+            for k in [0,1]:
+                m = accuraciesranksconcat[0,k,0,:]
+                e = accuraciesranksconcat[0,k,2,:]
+                axs.plot(ranklist, m, color=colors[k], lw=1, label=labels[k])
+                axs.fill_between(ranklist, m-e, m+e, color=colors[k], alpha=0.3)
+
+
+            axs.set_ylim(-0.2,+0.2)
+            axs.set_title(titles[ct]+concattitles[ct])
+
+
+
+
+
+
+            axs = ax[ct,2]
+            
+            for r in range(maxrank):
+                colors = ['grey',colorlist[r]]
+                labels = [None, 'rank %d'%r]
+                for k in [0,1]:
+                    m = accuraciesrankslowres[:,k,0,r]
+                    e = accuraciesrankslowres[:,k,2,r]
+                    axs.plot(timestampfpslowres, m, color=colors[1], lw=1, label=labels[k])
+                    axs.fill_between(timestampfpslowres, m-e, m+e, color=colors[k], alpha=0.3)
+
+            axs.legend(frameon=False, loc='upper left', ncol=4, fontsize=8)
+            figs.setxt(axs)
+            axs.set_ylim(-4,1)
+            figs.plottoaxis_stimulusoverlay(axs,T)
+            figs.plottoaxis_chancelevel(axs)
+            axs.set_title(titles[ct]+concattitles[ct])
+
+
+            axs.set_ylabel('$R^2$')
+
+
+
+        figs.plottoaxis_chancelevel(axs)
+
+
+
+        fig.suptitle('%s   diff. motion PCs -> neurons   linear reduced rank regressions '%dn)
+
+        save = 0 or globalsave
+        if save:
+            fig.savefig(resultpath+'neural-movement-rrr,mn,nm,timecourse+concat_%s'%(dn)+ext)     #neurons, all
+
+
+
+
+
+
+    return
+
+
+
+
+
+
+
+
+
+
+
+def comparestationarycontext(dn, block):
+    # separate motion and stationary by video motion energy thresholds
+    # compare context representation to all trials
+
+    print('decoding context at various motion threshold selected trials')
+
+    recalculate = 0 or globalrecalculate
+    doplot = 1 or globaldoplot
+
+
+    # collect motion criteria at different thresholds and allowed proportions
+    thresholds, proportions, movingtrials = preprocess.loadmovingthresholdtrials(dn)
+    n_thresholds = len(thresholds)
+    n_proportions = len(proportions)
+    n_trials = movingtrials.shape[0]//len(proportions)
+
+    movingtrials = np.reshape(movingtrials,(n_trials,n_proportions,-1))
+    stationarytrials = (1-movingtrials).astype(np.bool8)
+    # print(movingtrials.shape)
+    # print(n_trials-movingtrials.sum(axis=0))
+
+
+    # collect neural activity
+    allcomplextrials = [ [[2,4], [], []] ]
+    targets_all = np.hstack((2*np.ones(70),4*np.ones(70)))     # reestablish block ids
+    neuralactivity_all = np.array(preprocess.collect_stimulusspecificresponses(block, allcomplextrials)[0])
+    wx = int((50*pq.ms/T['dt']).magnitude)  # width of the feature space in time for each neuron
+    times = block.segments[0].analogsignals[0].times
+    if wx>1:   # create wider feature space of several subsequent timepoints
+        times = times[:-wx]
+        neuralactivity_all = neph.slidingwindow(neuralactivity_all,wx)
+
+
+    n_neurons = block.segments[0].analogsignals[0].shape[1]
+    n_timestamps = len(times)
+
+    n_trials_contextminimum = 5 # the number of trials required per trial as a minimum to do a decoding
+
+    # calculate the decoder grids
+    if recalculate:
+        accuracies = np.nan*np.ones((n_timestamps,2,3,n_proportions,n_thresholds))        # (timepoints, train/test, stats, proportions, thresholds)
+        coefs = np.nan*np.ones((n_timestamps,n_neurons,3,n_proportions,n_thresholds))     # (timepoints, neurons, stats, proportions, thresholds)
+
+        for px,pr in enumerate(proportions):
+            print('at proportions', pr)
+            for mx,th in enumerate(thresholds):
+                # check if we have enough trials
+                if stationarytrials[:,px,mx][:n_trials//2].sum()<n_trials_contextminimum or  \
+                   stationarytrials[:,px,mx][n_trials//2:].sum()<n_trials_contextminimum: continue
+
+                # fill out the targets axes, with dimensions = (observations,timepoints,features)
+                targets = targets_all[stationarytrials[:,px,mx]]
+                predictors = neuralactivity_all[stationarytrials[:,px,mx],:,:]
+
+                targets = np.tile(targets, [1,n_timestamps,1])
+                targets = np.swapaxes(targets, 0, 2)
+
+                accuracy,coef = nedi.get_linearregressionmultivariate(predictors,targets,times,'classification')
+                
+                # reshape to average over feature timewidth
+                if wx>1:
+                    coef = np.reshape(coef, [coef.shape[0], 1, wx, n_neurons, 3]).mean(axis=2)
+
+                # (n_timestamps,train/test,stats,task,symmetry)
+                accuracies[:,:,:,px,mx] = accuracy.squeeze()
+                # (n_timestamps,n_features,stats,task,symmetry)
+                coefs[:,:,:,px,mx] = coef.squeeze()
+
+    
+        # do for all trials as control    
+        targets = targets_all
+        predictors = neuralactivity_all
+        targets = np.tile(targets, [1,n_timestamps,1])
+        targets = np.swapaxes(targets, 0, 2)
+        accuracy,coef = nedi.get_linearregressionmultivariate(predictors,targets,times,'classification')
+        if wx>1: coef = np.reshape(coef, [coef.shape[0], 1, wx, n_neurons, 3]).mean(axis=2)
+        accuracyall = accuracy.squeeze()
+        coefsall = coef.squeeze()
+            
+
+        pickle.dump((accuracies,coefs,accuracyall,coefsall), open(cacheprefix+'locomotion/stationarytrials,threshold-context-decoder,timecourse_%s.pck'%(dn), 'wb'))
+    else:
+        accuracies,coefs,accuracyall,coefsall = pickle.load(open(cacheprefix+'locomotion/stationarytrials,threshold-context-decoder,timecourse_%s.pck'%(dn), 'rb'))
+
+    
+    
+    
+    
+    
+    
+    if doplot:
+        # show the 
+        fig, ax = plt.subplots(1,2,figsize=(2*12,1*8))
+
+        axs = ax[0]
+        prop_disp,th_disp = 1,3     # display indices for detailed timecourse
+        for mx in range(2):
+            for k in [0,1]:
+                colors = [['darkgrey','lightgrey'][mx],['rebeccapurple','mediumvioletred'][mx]]
+                labels = ['stationary','all']
+                if mx==0:
+                    m = accuracies[:,k,0,prop_disp,th_disp]         # just one dim target on 2nd dimension
+                    e = accuracies[:,k,2,prop_disp,th_disp]
+                else:
+                    m = accuracyall[:,k,0]
+                    e = accuracyall[:,k,2]
+                axs.plot(times, m, color=colors[k], lw=3, label=labels[mx]+[' train',' test'][k])
+                axs.fill_between(times, m-e, m+e, color=colors[k], alpha=0.3)
+
+            figs.setxt(axs)
+            axs.set_ylim(0.45,1.05)
+            figs.plottoaxis_stimulusoverlay(axs,T)
+            figs.plottoaxis_chancelevel(axs,0.5)
+
+            axs.legend(frameon=False)
+            axs.set_ylabel('accuracy')
+
+
+
+        axs = ax[1]
+        colors = plt.cm.viridis( np.linspace(0, 0.8, n_proportions) )
+        for px,pr in enumerate(proportions):
+
+            labels = ['stationary','all']
+            m = accuracies[:,1,0,px,:].mean(axis=0)         # just one dim target on 2nd dimension
+            e = accuracies[:,1,2,px,:].mean(axis=0)
+            axs.plot(thresholds, m, color=colors[px], lw=1, label='prop=%4.2f'%proportions[px])
+            axs.fill_between(thresholds, m-e, m+e, color=colors[px], alpha=0.3)
+
+
+        # show the point in the grid on the first subplot
+        axs.plot(thresholds[th_disp],accuracies[:,1,0,prop_disp,th_disp].mean(axis=0),'o',color='rebeccapurple')
+
+        axs.set_ylim(0.45,1.05)
+        figs.plottoaxis_chancelevel(axs,0.5)
+
+        axs.set_xlabel('motion energy threshold [AU]')
+        axs.legend(frameon=False)
+        axs.set_ylabel('accuracy')
+        
+    
+
+
+        fig.suptitle('%s   decoding context from threshold-stationary trials '%dn)
+
+        save = 1 or globalsave
+        if save:
+            fig.savefig(resultpath+'stationarytrials,threshold-context-decoder,timecourse_%s'%(dn)+ext)     #neurons, all
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def get_mask_cleverness(dn, ma=20, ma_threshold=0.5, visualfirst=True, go='nogo', congruency='incongruent'):
+    # selects a subset of trials, and returns this selection mask
+    # seperatively for the two contexts in a 2 elements list
+
+    blv,bla = preprocess.getorderattended(dn) # get order of context
+
+    thetas, index_contextchangepoint = behaviour_likelihood_idealobserver(dn, ma=ma, full=False, returnbehaviourma=True) # currently only works for the first changepoint
+    # thetas dimensions are ( trials, {all,go,nogo}, {all,congruent,incongruent} )
+
+    cix = 2-(congruency=='congruent')    # index for congruency: 1 or 2  for cong. incongr.       (0 is both together)
+    gix = 2-(go=='go')                   # index for goness:     1 or 2  for go nogo              (0 is both together)
+    cci = thetas[:,gix,cix]            # clever/clueless index: view on incongruent nogo trials fraction correct, as a proxy to indicate clever/clueless state
+    mask_clevers = cci > ma_threshold       # designate periods where they perform incongruent nogo consistently (moving average) better than chance
+
+    mask_clevers = [ mask_clevers[:index_contextchangepoint[0]], mask_clevers[index_contextchangepoint[0]:] ]        # could change to multiple changepoints
+    if visualfirst:
+        mask_clevers = [ mask_clevers[blv[1]==4], mask_clevers[blv[1]==2] ]       # reorder for visual context first, audio context second
+
+    return mask_clevers
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def behaviour_likelihood_simplemodels(dn):
+
+    doplot = 1 or globaldoplot
+
+
+    lowprob = 1e-3     # prevent exact 1s and 0s in probabilities
+
+    theta_data_conditional,triallist_conditional, n_trials, labels = \
+        preprocess.get_behaviour_conditional_hypercube(dn,multimodalonly=True, lowprob=lowprob)
+
+    # also get: trialindices_conditional
+
+    # print(labels)
+    # print(data_likelihood_conditional)
+    # print('%s, data MLL: '%dn, marginal_loglikelihood, 'ML: ', np.exp(marginal_loglikelihood))
+
+    # models; cube: (context, visual, audio) 2x2x2 matrix
+    # m functions will give a probability mass cube from parameters
+    # [[['visual,45,5000' 'visual,45,10000']   
+    # ['visual,135,5000' 'visual,135,10000']]
+    # [['audio,45,5000' 'audio,45,10000']     
+    # ['audio,135,5000' 'audio,135,10000']]]
+
+    model_labels = ['contextual','visual only','audio only','lick only','global bias','chance','local bias']
+    model_colors = ['purple','navy','darkgreen','gold','darkorange','red','black']
+    # ideal observer always perfect choice given by the model
+    # for the lick bias model calculate the random bias based on the data (so not exactly chance):
+    # random 0.5 chance for the last, then data dummy
+    # bias  maximum likelihood estimate from the data (p = mean of x)
+    theta_pre_lickbias = np.concatenate(np.concatenate(np.concatenate(triallist_conditional))).mean()
+    theta_pre = [1-lowprob,1-lowprob,1-lowprob,1-lowprob,theta_pre_lickbias,0.5,np.nan]
+    n_models = len(theta_pre)
+
+    m_context = lambda c: np.array(    [[[c,   c],  [1-c, 1-c]],       \
+                                        [[c, 1-c],  [c, 1-c]]]    )
+    m_visual = lambda v: np.array(    [[[v,   v],  [1-v, 1-v]],       \
+                                        [[v,   v],  [1-v, 1-v]]]    )
+    m_audio = lambda a: np.array(     [[[a, 1-a],  [a, 1-a]],       \
+                                        [[a, 1-a],  [a, 1-a]]]    )
+    m_random = lambda r: np.array(     [[[r, r],  [r, r]],       \
+                                        [[r, r],  [r, r]]]    )
+
+
+    # solution 1
+    #
+    # fit the models to find the parameter at the maximum likelihood explaining the data
+    # print marginal likelihood of the data with the model
+    # thetas = np.zeros((5))
+    # model_loglikelihood_conditional = np.zeros((5,2,2,2))
+    # optimalization
+    # for mx,m in enumerate([m_context,m_visual,m_audio,m_random]):
+    #     costfunction = lambda theta: (  ( data_likelihood_conditional - m(theta) )  **2  ).mean()
+    #     res = sp.optimize.minimize(costfunction, np.random.rand())
+    #     thetas[mx] = res.x
+    #     # print(model_labels[mx], res.x)
+    #     model_loglikelihood_conditional[mx] = m(thetas[mx])
+    # add the data likelihood
+    # model_loglikelihood_conditional[4] = data_likelihood_conditional
+
+
+
+
+    # solution 2
+    #
+    # use the models as ideal observer models, i.e. hit and correct rejection probabilities = 1.0
+    # use random model to generate lick only strategy, as well as a theta = 0.5, exact chance model
+    #
+    # calculate likelihood for each conditioned trial list with the models
+
+    
+
+    model_loglikelihood_conditional = np.zeros((n_models,2,2,2))
+    model_loglikelihood_marginal = np.zeros((n_models,3))      # attend visual, attend audio, total sum
+
+
+
+    # get overall conditional and marginal likelihoods
+    for mx,m in enumerate([m_context,m_visual,m_audio,m_random,m_random,m_random,m_random]):
+        # print('\n%s model'%model_labels[mx])
+        if mx<n_models-1: # calculate with model thetas
+            theta = m( theta_pre[mx] )
+        elif mx==n_models-1: # calculate data likelihood with the data conditional thetas
+            theta = theta_data_conditional
+
+        for cx in [0,1]:
+            for vx in [0,1]:
+                for ax in [0,1]:
+                    # summary for the whole condition
+                    model_loglikelihood_conditional[mx,cx,vx,ax] = neba.f_loglikelihood_bernoulli( \
+                        triallist_conditional[cx,vx,ax], theta[cx,vx,ax] )
+                    
+                    # print(mx,'(',cx,vx,ax,')','L:',model_loglikelihood_conditional[mx,cx,vx,ax], 'p: %4.2f'%theta[cx,vx,ax], '   n=%d'%len(triallist_conditional[cx,vx,ax]) )
+                    
+            model_loglikelihood_marginal[mx,cx] = model_loglikelihood_conditional[mx,cx].sum()
+        model_loglikelihood_marginal[mx,2] = model_loglikelihood_conditional[mx].sum()
+        # print('MLL:',model_loglikelihood_marginal[mx])
+
+
+
+
+
+
+
+
+    # moving average of Ls in windows of trials
+    ma = 16 # moving average width for the sliding windows in number of trials
+    model_loglikelihood_ma = np.empty((n_models,2),dtype=object)          # for the two contexts
+    g = preprocess.loadexperimentdata(dn)
+    g['block']+=1
+    g['success'] = g['punish']==False
+    g['action'] = np.logical_not(np.logical_xor(g['water'], g['success']))
+    blv,bla = preprocess.getorderattended(dn)
+
+    for cx in [0,1]:
+        h = g[g['block'].isin([[2,4][cx]])]      # use only the multimodal blocks
+        n_trials_context = len(h)
+
+        # for model estimated bernoulli theta parameters:
+        theta_ma = np.zeros((n_models,n_trials_context))
+        
+        cubeindex_trials = pd.DataFrame()          
+        cubeindex_trials['context'] = h['block']==2       #  first context, later we calculate if it is visual or audio
+        cubeindex_trials['degree'] = (h['degree']==45).astype(np.int16)
+        cubeindex_trials['freq'] = (h['freq']==5000).astype(np.int16)
+
+
+        # for performance displays:
+        theta_all_ma = np.zeros((n_trials_context))
+        theta_congruent_ma = np.zeros((n_trials_context))
+        theta_incongruent_ma = np.zeros((n_trials_context))
+
+
+        for mx,m in enumerate([m_context,m_visual,m_audio,m_random,m_random,m_random,m_random]):
+            model_loglikelihood_ma[mx,cx] = np.zeros((n_trials_context))
+            for t in range( n_trials_context ):
+                sl = slice( max(0,t-ma//2), min(t+ma//2,n_trials_context-1) )
+
+                if mx<n_models-1:             # get the probability from the model based choices
+                    response_cube = m( theta_pre[mx] )
+                    # create actions for the models; 0==(bla[1]==2) means if the context is visual (0) or audio (1), but order in the session is kept
+                    #  bla[1]).astype(np.int16)
+                    actions = response_cube[(cubeindex_trials['context']==(blv[1]==2)).astype(np.int16)[sl], cubeindex_trials['degree'][sl], cubeindex_trials['freq'][sl]]
+                    theta_ma[mx][t] = actions.mean()
+
+                elif mx==n_models-1:          # local bias model: get the probability of action from the data
+                    theta_ma[mx][t] = h['action'][ sl ].mean()
+                    
+                
+                # the above generated simulation creates sliding theta values use this for LL:
+                # calculate the log likelihood of the data with the models for this sliding window
+                # + add some compensatory numbers for the moving average windows at the edges of the data (   log p^x1+x2 = log p^ N xaverage = N xaverage log p )
+                model_loglikelihood_ma[mx,cx][t] = neba.f_loglikelihood_bernoulli( \
+                        h['action'][sl].values, theta_ma[mx][t] )  *  ma / len(g[sl])
+    
+    
+
+        
+
+
+    # for performance displays:
+    theta_all_ma = np.zeros((n_trials,3))
+    theta_congruent_ma = np.zeros((n_trials,3))
+    theta_incongruent_ma = np.zeros((n_trials,3))
+    h = g[g['block'].isin([2,4])]
+    n_trials = len(h)
+    index_contextchangepoint = h['block'].ne(2).values.argmax()          # get the splitpoint index between contexts relative within the selected mm blocks
+
+    for mx,m in enumerate([m_context,m_visual,m_audio,m_random,m_random,m_random,m_random]):
+        for t in range( n_trials ):
+            sl = slice( max(0,t-ma//2), min(t+ma//2,n_trials-1) )
+
+            # and also gather the performance moving averages:
+            theta_all_ma[t,0] = h['success'][ sl ].mean()
+            theta_all_ma[t,1] = h[ sl ][h['water']==True]['success'].mean()
+            theta_all_ma[t,2] = h[ sl ][h['water']==False]['success'].mean()
+
+            congruent_trials = h[ sl ]
+            mask = ((congruent_trials['degree']==45) & (congruent_trials['freq']==5000)) |  \
+                ((congruent_trials['degree']==135) & (congruent_trials['freq']==10000))
+            theta_congruent_ma[t,0] = congruent_trials['success'][  mask  ].mean()
+            theta_congruent_ma[t,1] = congruent_trials[h['water']==True]['success'][  mask  ].mean()
+            theta_congruent_ma[t,2] = congruent_trials[h['water']==False]['success'][  mask  ].mean()
+
+            incongruent_trials = h[ sl ]
+            mask = ((incongruent_trials['degree']==45) & (incongruent_trials['freq']==10000)) |  \
+                ((incongruent_trials['degree']==135) & (incongruent_trials['freq']==5000))
+            theta_incongruent_ma[t,0] = incongruent_trials['success'][  mask  ].mean()
+            theta_incongruent_ma[t,1] = incongruent_trials[h['water']==True]['success'][  mask  ].mean()
+            theta_incongruent_ma[t,2] = incongruent_trials[h['water']==False]['success'][  mask  ].mean()
+
+
+
+
+
+
+
+
+
+
+
+
+    # both indices will have two contexts visual and audio
+    indices_congruent = np.array([ [[0,0],[1,1]], [[0,0],[1,0]] ],dtype=np.int16)
+    indices_conflicting = np.array([ [[0,1],[1,0]], [[0,1],[1,1]] ],dtype=np.int16)
+
+
+    if doplot:
+
+        congruency_labels = ['congruent go','congruent nogo','conflicting go','conflicting nogo']
+        xticklist = -np.array([0,1,2, 4,5,6, 8])    # corresponding to easy interpretation of the model groups and data
+        
+        
+        
+        if 1:
+            fig,ax = plt.subplots(5,4,figsize=(4*8,5*8))
+
+            for cx in [0,1]:
+                
+                p_congruent_go = model_loglikelihood_conditional[:,cx,indices_congruent[cx,0,0],indices_congruent[cx,0,1]]
+                p_congruent_nogo = model_loglikelihood_conditional[:,cx,indices_congruent[cx,1,0],indices_congruent[cx,1,1]]
+                p_conflicting_go = model_loglikelihood_conditional[:,cx,indices_conflicting[cx,0,0],indices_conflicting[cx,0,1]]
+                p_conflicting_nogo = model_loglikelihood_conditional[:,cx,indices_conflicting[cx,1,0],indices_conflicting[cx,1,1]]
+
+
+                for gfx,p_gfs in enumerate([ [p_congruent_go, p_congruent_nogo], [p_conflicting_go, p_conflicting_nogo]]):  # congruent conflicting
+                    for gx in [0,1]:     # go, nogo
+                        axs = ax[gfx,cx*2+gx]
+
+                        for mx in range(n_models):
+                            # axs.bar(x=xticklist[mx],height=p_gfs[gx][mx],color=model_colors[mx])
+                            axs.plot(p_gfs[gx][mx],xticklist[mx], ['o','d'][mx==n_models-1], markersize=24,color=model_colors[mx])
+                            axs.text(p_gfs[gx][mx],xticklist[mx]+0.2, '%4.2f'%p_gfs[gx][mx], color=model_colors[mx])
+                        
+                        if gfx==0:
+                            axs.set_title('%s\n%s'%(['visual set','audio set'][cx],congruency_labels[gfx*2+gx]))
+                        else:
+                            axs.set_title('%s'%(congruency_labels[gfx*2+gx]))
+
+                        # if cx*2+gx+gfx==0: axs.legend(model_labels, frameon=False, loc='lower left')
+
+                        # axs.set_ylim(-0.55,0.55)
+
+                        axs.set_yticks([])
+                        if gx+cx==0:
+                            axs.set_yticks(xticklist)
+                            axs.set_yticklabels(model_labels)
+                            axs.set_ylabel('conditional log likelihood\n%s'%['congruent','conflicting'][gfx])
+                        axs.set_ylim(xticklist[-1]-0.5,0.5)
+                        
+                        # figs.plottoaxis_chancelevel(axs,p_gfs[gx][-1])
+
+
+
+
+            ax_center1 = fig.add_subplot(5,3,8)
+            ax_center2 = fig.add_subplot(5,1,4)
+            ax_center3 = fig.add_subplot(5,1,5)
+
+            for cx in [0,1,2]:
+                if cx<2: axs = ax[2,cx*3]
+                else:    axs = ax_center1
+
+                for mx in range(n_models):
+                    # axs.bar(x=xticklist[mx],height=p_gfs[gx][mx],color=model_colors[mx])
+                    axs.plot(model_loglikelihood_marginal[mx,cx],xticklist[mx], ['o','d'][mx==n_models-1], markersize=24,color=model_colors[mx])
+                    axs.text(model_loglikelihood_marginal[mx,cx]*0.9,xticklist[mx], '%4.2f'%model_loglikelihood_marginal[mx,cx], color=model_colors[mx],verticalalignment='center')
+
+                    axs.set_yticks([])
+                    if cx==0:
+                        axs.set_yticks(xticklist)
+                        axs.set_yticklabels(model_labels)
+                        axs.set_ylabel('marginal log likelihood')
+                    axs.set_ylim(xticklist[-1]-0.5,0.5)
+
+                    axs.set_title(['visual set','audio set','total'][cx])
+
+
+
+
+
+            # log likelihood moving averages
+
+            axs = ax_center2
+            ylim_aux = []
+            for mx in range(n_models):
+                if mx==0: ls='.-'
+                else: ls='-'
+                model_loglikelihood_ma_bothcontexts = np.concatenate(model_loglikelihood_ma[mx,:])
+                axs.plot(model_loglikelihood_ma_bothcontexts, ls, lw=2, color=model_colors[mx], label=model_labels[mx])
+                if mx!=3: ylim_aux.append(model_loglikelihood_ma_bothcontexts)       # collect for automatic optimal y_lim placement
+
+            axs.legend(frameon=False)
+
+            ylim_aux = np.concatenate(ylim_aux)#[0,1,2,4,5,6]])#.flatten()
+            axs.set_ylim(ylim_aux.mean()-ylim_aux.std()*4,ylim_aux.mean()+ylim_aux.std()*4)
+            axs.vlines(index_contextchangepoint-0.5,axs.get_ylim()[0],axs.get_ylim()[1],color='black')
+
+            axs.set_ylabel('log likelihood')
+
+
+
+
+            # performance moving average
+            axs = ax_center3
+            gng = ['all','go','nogo']
+            ls = ['-','-','--']
+            for k in [0,1,2]:       # all, go, nogo
+                lws = 1/((k>0)*2+1)
+                axs.plot(theta_all_ma[:,k], ls[k], lw=5*lws, color='black', label='data performance, all, %s'%gng[k])
+                axs.plot(theta_congruent_ma[:,k], ls[k], lw=3*lws, color='darkturquoise', label='data performance, congruent only, %s'%gng[k])
+                axs.plot(theta_incongruent_ma[:,k], ls[k], lw=3*lws, color='deeppink', label='data performance, incongruent only, %s'%gng[k])
+
+            axs.vlines(index_contextchangepoint-0.5,axs.get_ylim()[0],axs.get_ylim()[1],color='black')
+
+            axs.legend(frameon=False)
+
+            axs.set_xlim(ax_center2.get_xlim())
+            axs.set_ylim(-0.05,1.05)
+            figs.plottoaxis_chancelevel(axs,0.5)
+            
+            axs.set_ylabel('data fraction correct')
+
+            cls = [ ['visual','audio'],['audio','visual'] ][blv[1]==2]
+            axs.set_xlabel('attend %s                                               attend %s\ntrial number'%(cls[0],cls[1])+\
+                               ', ma=%d'%ma)
+
+
+
+
+
+            for axs in [ax[2,1],ax[2,2],  ax[3,0],ax[3,1],ax[3,2],ax[3,3],  ax[4,0],ax[4,1],ax[4,2],ax[4,3]]:
+                figs.invisibleaxes(axs,which=['right','top','left','bottom'])
+    
+
+
+
+
+
+
+
+
+
+
+
+
+            fig.suptitle('%s, choice models and data, conditional and marginal log likelihoods'%(dn))
+            # fig.tight_layout()
+
+
+
+            save = 0 or globalsave
+            if save:
+                fig.savefig(resultpath+'strategymodel_conditional,marginal,movingaverage-likelihoods_%s'%(dn)+ext)
+
+
+
+
+
+
+                    
+
+    return
+
+
+
+
+
+
+
+
+
+
+def behaviour_likelihood_idealobserver(dn, ma=20, full=True, multimodalonly=True, returnlikelihoodratio=False, returnbehaviourma=False, onlybehaviourma=False):
+    # print(dn,'behaviour moving average')
+    doplot = 0 or globaldoplot
+
+
+    lowprob = 5e-2     # prevent exact 1s and 0s in probabilities
+
+    g = preprocess.loadexperimentdata(dn,full=full,multimodalonly=multimodalonly)
+    g['block']+=1
+    g['success'] = g['punish']==False
+    g['action'] = np.logical_not(np.logical_xor(g['water'], g['success']))
+    blv,bla = preprocess.getorderattended(dn)
+    # labels_contextorder = [ ['visual','audio'],['audio','visual'] ][bla[1]==2]        # only works for two context sets (one shift)
+
+    g = g[g['block'].isin([2,4])]      # use only the multimodal blocks
+    n_trials = len(g)
+    g['conditionedindex'] = np.arange(n_trials)
+    # index_contextchangepoint = g['block'].ne(2).values.argmax()          # get the splitpoint index between contexts relative within the selected mm blocks
+    index_contextchangepoint = np.where(np.abs(np.diff(g['block']))>0)[0]+1    # splitpoints list for more than a single context set shift
+    labels_contextorder = np.array(['visual','audio'])[ (g['block'].iloc[np.r_[0,index_contextchangepoint]]==bla[1]).values.astype(np.int16) ]
+    colors_contextorder = np.array(['navy','darkgreen'])[ (g['block'].iloc[np.r_[0,index_contextchangepoint]]==bla[1]).values.astype(np.int16) ]
+
+    congruent_mask = ((g['degree']==45) & (g['freq']==5000)) |  \
+           ((g['degree']==135) & (g['freq']==10000))
+    idx_congruent_go = g['conditionedindex'].loc[g[congruent_mask & (g['water']==True)].index].values
+    idx_congruent_nogo = g['conditionedindex'].loc[g[congruent_mask & (g['water']==False)].index].values
+    incongruent_mask = ((g['degree']==45) & (g['freq']==10000)) |  \
+           ((g['degree']==135) & (g['freq']==5000))
+    idx_incongruent_go = g['conditionedindex'].loc[g[incongruent_mask & (g['water']==True)].index].values
+    idx_incongruent_nogo = g['conditionedindex'].loc[g[incongruent_mask & (g['water']==False)].index].values
+
+
+
+
+
+
+    key = [['freq','degree'],['degree','freq']][blv[1]==2]
+    valuego = [[5000,45],[45,5000]][blv[1]==2]
+    signals_contextual = np.concatenate([ g[g['block']==k][key[kx]]==valuego[kx] for kx,k in enumerate([2,4]) ]).astype(np.int16)
+    signals_visual = (g['degree']==45).values.astype(np.int16)
+    signals_audio = (g['freq']==5000).values.astype(np.int16)
+    signals = [signals_contextual,signals_visual,signals_audio]
+    n_models = len(signals)+2
+    choices = g['action'].values.astype(np.int16)
+
+
+
+    labels_models = ['contextual','visual only','audio only','lick bias','chance']
+    colors_models = ['purple','navy','darkgreen','goldenrod','red']
+
+
+    LLs = np.zeros((n_trials,n_models))
+    for mx,_ in enumerate(labels_models):
+        if mx<3:
+            p = signals[mx] * (1-2*lowprob) + lowprob
+        elif mx==3:
+            p = choices.mean()
+        elif mx==4:
+            p = 0.5
+        LLs[:,mx] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     )
+
+
+
+
+
+    # for performance displays:
+    theta_all_ma = np.zeros((n_trials,3))            # both, go, nogo trials
+    theta_congruent_ma = np.zeros((n_trials,3))
+    theta_incongruent_ma = np.zeros((n_trials,3))
+    h = g[g['block'].isin([2,4])]
+    n_trials = len(h)
+    # index_contextchangepoint = h['block'].ne(2).values.argmax()          # get the splitpoint index between contexts relative within the selected mm blocks
+    index_contextchangepoint = np.where(np.abs(np.diff(g['block']))>0)[0]+1    # splitpoints list for more than a single context set shift
+
+    # start = [0,index_contextchangepoint]
+    # stop = [index_contextchangepoint,n_trials]
+    start = np.r_[0,index_contextchangepoint]
+    stop = np.r_[index_contextchangepoint, n_trials]
+
+    for cx in range(len(start)):
+        for t in np.arange(start[cx],stop[cx]):
+            sl = slice( max(start[cx],t-ma//2), min(t+ma//2,stop[cx]) )
+            watersl = h[sl]['water']==True
+
+            # and also gather the performance moving averages:
+            theta_all_ma[t,0] = h['success'][ sl ].mean()
+            theta_all_ma[t,1] = h['success'][ sl ][  watersl ].mean()
+            theta_all_ma[t,2] = h['success'][ sl ][ ~watersl ].mean()
+
+            congruent_trials = h[ sl ]
+            mask = ((congruent_trials['degree']==45) & (congruent_trials['freq']==5000)) |  \
+                ((congruent_trials['degree']==135) & (congruent_trials['freq']==10000))
+            theta_congruent_ma[t,0] = congruent_trials['success'][  mask ].mean()
+            theta_congruent_ma[t,1] = congruent_trials['success'][  mask &  watersl ].mean()
+            theta_congruent_ma[t,2] = congruent_trials['success'][  mask & ~watersl ].mean()
+
+            incongruent_trials = h[ sl ]
+            mask = ((incongruent_trials['degree']==45) & (incongruent_trials['freq']==10000)) |  \
+                ((incongruent_trials['degree']==135) & (incongruent_trials['freq']==5000))
+            theta_incongruent_ma[t,0] = incongruent_trials['success'][  mask  ].mean()
+            theta_incongruent_ma[t,1] = incongruent_trials['success'][  mask &  watersl ].mean()
+            theta_incongruent_ma[t,2] = incongruent_trials['success'][  mask & ~watersl ].mean()
+
+
+
+
+    # followings is for individual mice calculation returns for function calls
+    if returnlikelihoodratio or returnbehaviourma:
+        R = []
+
+        # strategy ideal observer likelihoods ratios to chance (LL differences)
+        # LLs are log likelihoods per trial for each model
+        # we return three log likelihood differences: contextual, visual only and audio only to chance ratio
+        # return all trials and return
+        if returnlikelihoodratio:
+            LLDs = LLs[:,0:3] - LLs[:,4][:,np.newaxis]
+            R.extend([ LLDs.mean(axis=0), LLDs[idx_incongruent_nogo,:].mean(axis=0) ])
+
+
+        # moving average behaviours, 
+        if returnbehaviourma:
+            theta_collect = np.stack([theta_all_ma, theta_congruent_ma, theta_incongruent_ma],axis=2)
+            R.extend([theta_collect,index_contextchangepoint])
+            # pickle.dump((theta_collect,index_contextchangepoint),open(cacheprefix+'behaviour/fractioncorrect-both,congruent,incongruent-all,go,nogo_%s'%(dn),'wb'))
+        
+        return R
+
+
+
+
+
+
+
+
+    # display figure
+
+
+    if doplot:
+
+
+
+        if onlybehaviourma:
+            fig,ax = plt.subplots(1,3,figsize=(3*12,1*8))
+        else:
+            fig,ax = plt.subplots(2,1,figsize=(1*20,2*8))
+        
+        
+        if not onlybehaviourma:
+            axs = ax[0]
+            for mx in range(n_models):
+                if mx==0: l='o-'
+                else: l='-'
+                axs.plot(LLs[:,mx],l,color=colors_models[mx],lw=2,label='%s  mLL=%4.2f'%(labels_models[mx],LLs[:,mx].mean()))
+
+            mx = 0
+            axs.plot(idx_congruent_go, 0.1*np.ones(len(idx_congruent_go)),'^',color='lightgrey',label='congruent, go  %s mLL=%4.2f'%(labels_models[mx],LLs[idx_congruent_go,mx].mean()))
+            axs.plot(idx_congruent_nogo, 0.1*np.ones(len(idx_congruent_nogo)),'x',color='lightgrey',label='congruent, nogo  %s mLL=%4.2f'%(labels_models[mx],LLs[idx_congruent_nogo,mx].mean()))
+
+            axs.plot(idx_incongruent_go, 0.1*np.ones(len(idx_incongruent_go)),'^',color='cyan',label='incongruent, go  %s mLL=%4.2f'%(labels_models[mx],LLs[idx_incongruent_go,mx].mean()))
+            axs.plot(idx_incongruent_nogo, 0.1*np.ones(len(idx_incongruent_nogo)),'x',color='red',label='incongruent, nogo  %s mLL=%4.2f'%(labels_models[mx],LLs[idx_incongruent_nogo,mx].mean()))
+
+            axs.set_ylim(np.min(LLs.flatten())*1.05,0.12)
+
+            for ichp in index_contextchangepoint:
+                axs.vlines(ichp-0.5,axs.get_ylim()[0],axs.get_ylim()[1],ls='--',lw=2,color='black',alpha=0.2)
+
+            axs.set_ylabel('single trial log likelihood')
+            # axs.set_xlabel('trial number\n%s              %s'%(labels_contextorder[0],labels_contextorder[1]))
+            axs.set_xlabel('trial number')
+
+
+            axs.legend(bbox_to_anchor=(1,0),loc='lower left',frameon=False)
+
+
+
+        if not onlybehaviourma:
+            axs = ax[1]
+        # performance moving average
+        gng = ['all','go','nogo']
+        acolors = ['grey','black','red']     # both congruent incongruent
+        # dark/light: relevant/irrelevant
+        # solid/dash: congruent/incongruent
+        # darkturquoise/deeppink: go/nogo         ->        black/red: go/nogo        
+        # darkorchid/fuchsia  and    goldenrod/gold:               clever,relevant/clever,irrelevant   and    clueless,relevant/clueless,irrelevant
+        for cx in range(len(start)):
+            for k in [0,1,2]:       # all, go, nogo      [ 0,1,2 ]
+                axs = ax[k]
+                lws = 1/((k>0)*2+1)
+                label = ['fraction correct, %s'%gng[k], 'fraction correct, %s'%gng[k], 'fraction correct, %s'%gng[k] ][k]
+                # all, congruent, incongruent:
+                for ex,(theta_,lwsmul,thls,labelpostfix) in enumerate(zip([theta_all_ma, theta_congruent_ma, theta_incongruent_ma],[6,3,3],\
+                                            ['-','-','--'],[', both',', congruent only',', incongruent only'])):
+                    if k==0 and ex>0: continue
+                    axs.plot(np.arange(start[cx],stop[cx]), theta_[start[cx]:stop[cx],k], ls=thls, lw=lwsmul*lws, color=acolors[k], label=[label+labelpostfix,None][cx>0])
+                if k>0: axs.legend(['all','congruent','incongruent'],frameon=False,loc='lower right')
+                axs.set_title(['performance','performance go','performance nogo'][k])
+
+                ee_icp = np.r_[0,index_contextchangepoint,n_trials]
+                for ix in range(len(ee_icp)-1):
+                    if ix>0:   axs.vlines(ee_icp[ix]-0.5,-0.05,1.05,ls='--',lw=2,color='black',alpha=0.2)
+                    axs.text((ee_icp[ix]+ee_icp[ix+1])/2, 0.01, labels_contextorder[ix], color=colors_contextorder[ix],alpha=0.8,horizontalalignment='center')
+
+
+                if not onlybehaviourma: axs.set_xlim(ax[0].get_xlim())
+                axs.set_ylim(-0.05,1.05)
+                figs.plottoaxis_chancelevel(axs,0.5)
+                if k==0: axs.set_ylabel('animal %s\nfraction correct'%dn)
+                # axs.set_xlabel('trial number, ma=%d'%ma)
+                axs.set_xlabel('trial number')
+        
+        # axs.legend(bbox_to_anchor=(1,0),loc='lower left',frameon=False)
+
+        # cls = [ ['visual','audio'],['audio','visual'] ][blv[1]==2]
+
+
+
+        if onlybehaviourma:
+            # print()
+            fig.suptitle('%s behaviour moving averages'%(dn))
+        else:
+            fig.suptitle('%s, ideal (%d%%) observer models, single trial and mean log likelihoods'%(dn,100-lowprob*100))
+        fig.tight_layout()
+
+
+
+
+        save = 0 or globalsave
+        if save:
+            if onlybehaviourma:
+                fig.savefig(resultpath+'movingaverage%d,performance_%s'%(ma,dn)+ext)
+            else:
+                fig.savefig(resultpath+'strategymodel_idealobserversingletrial,movingaverageperformance-likelihoods_%s'%(dn)+ext)
+
+
+
+
+
+    return
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def behaviour_likelihood_sigmoidlinearmodels(dn):
+
+    doplot = 1 or globaldoplot
+
+
+    # load data
+
+    g = preprocess.loadexperimentdata(dn)
+    g['block']+=1
+    g['success'] = g['punish']==False
+    g['action'] = np.logical_not(np.logical_xor(g['water'], g['success']))
+    blv,bla = preprocess.getorderattended(dn)
+
+    g = g[g['block'].isin([2,4])]      # use only the multimodal blocks
+    n_trials = len(g)
+    g['conditionedindex'] = np.arange(n_trials)
+    index_contextchangepoint = g['block'].ne(2).values.argmax()          # get the splitpoint index between contexts relative within the selected mm blocks
+
+
+    congruent_mask = ((g['degree']==45) & (g['freq']==5000)) |  \
+           ((g['degree']==135) & (g['freq']==10000))
+    idx_congruent_go = g['conditionedindex'].loc[g[congruent_mask & (g['water']==True)].index].values
+    idx_congruent_nogo = g['conditionedindex'].loc[g[congruent_mask & (g['water']==False)].index].values
+    incongruent_mask = ((g['degree']==45) & (g['freq']==10000)) |  \
+           ((g['degree']==135) & (g['freq']==5000))
+    idx_incongruent_go = g['conditionedindex'].loc[g[incongruent_mask & (g['water']==True)].index].values
+    idx_incongruent_nogo = g['conditionedindex'].loc[g[incongruent_mask & (g['water']==False)].index].values
+
+
+
+
+
+    key = [['freq','degree'],['degree','freq']][blv[1]==2]
+    valuego = [[5000,45],[45,5000]][blv[1]==2]
+    signals_contextual = np.concatenate([ g[g['block']==k][key[kx]]==valuego[kx] for kx,k in enumerate([2,4]) ]).astype(np.int16)
+    signals_visual = (g['degree']==45).values.astype(np.int16)
+    signals_audio = (g['freq']==5000).values.astype(np.int16)
+    signals_bias = np.zeros(n_trials)
+    signals = [signals_contextual,signals_visual,signals_audio,signals_bias]
+    n_models = len(signals)
+    choices = g['action'].values.astype(np.int16)
+
+
+
+
+    sigmoid = lambda x: 1/(1+np.exp(-x))
+    def negativeloglikelihood(theta,S,d):
+        # theta = (w1,w2,w3,...,b)   parameters to find where return is extreme
+        # S stimulus conditions for trials, N by S matrix to drive the parametrized models
+        # d animal choices for trials, N length vector
+        w = theta[:-1]
+        b = theta[-1]
+        # p = sigmoid(np.dot(S,w)+b)     # vector stimulus
+        p = sigmoid(S*w+b)               # single stimulus
+        LL = (     d * np.log(  p  )     +    (1-d) * np.log( (1-p) )     ).sum()
+        return -LL
+
+
+    # cross validation schene
+    k_fold = 10
+    kf = skms.KFold(n_splits=k_fold)
+
+
+
+
+    
+    # fit the models to find the parameter at the maximum likelihood explaining the data
+    W_hat = np.zeros((n_models,k_fold))
+    B_hat = np.zeros((n_models,k_fold))
+    LLs = np.zeros((n_models,n_trials,2))          # train test
+    # optimization
+    for (fold, (idx_tr,idx_test)) in enumerate( kf.split(np.arange(n_trials)) ):
+        for mx,signal in enumerate(signals):
+            # costfunction = lambda theta: (  ( data_likelihood_conditional - theta )  **2  ).mean()
+            n_s = 1
+            res = sp.optimize.minimize(fun=negativeloglikelihood, x0=np.random.randn(n_s+1), args=(signal[idx_tr],choices[idx_tr]))
+            W_hat[mx,fold] = res.x[:-1][0]
+            if mx==3: W_hat[mx,fold] = 0 # bias model does not fit w (signals are zeroed out)
+            B_hat[mx,fold] = res.x[-1]
+
+            # now we have estimates
+            # calculate the sigmoids and the data likelihood for all folds and models
+            for ix,idx in enumerate([idx_tr,idx_test]):
+                p = sigmoid(  signals[mx]*W_hat[mx,ix] + B_hat[mx,ix] )[idx]
+                aux = (     choices[idx] * np.log(  p  )     +    (1-choices[idx]) * np.log( (1-p) )     )
+                if fold==0: # train, mean of all folds
+                    LLs[mx,idx,fold] += aux / (k_fold-1)
+                elif fold==1:   # test, single held out
+                    LLs[mx,idx,fold] = aux
+
+
+
+
+    # plot
+
+    labels_models = ['contextual','visual only','audio only','bias']
+    colors_models = ['purple','navy','darkgreen','goldenrod']
+    context_order = [ ['visual','audio'],['audio','visual'] ][bla[1]==2]
+
+    fig,ax = plt.subplots(2,4,figsize=(4*8,2*8))
+
+    
+    for mx in range(n_models):
+
+
+        # choice probability
+        axs = ax[0,mx]
+        t = np.arange(-2,2.,0.01)
+        for k in range(k_fold):
+            p = sigmoid(  t*W_hat[mx,k] + B_hat[mx,k]  )
+            axs.plot(t,p,lw=2,color=colors_models[mx])
+        axs.set_ylim(0,1)
+        axs.set_xlim(-1,2)
+        figs.plottoaxis_crosshair(axs,0.0,0.5)
+        figs.plottoaxis_crosshair(axs,1.0,0.5)
+
+        if mx==0: axs.set_ylabel('choice probability, P(lick)')
+        # axs.set_yticks([0,0.5,1])
+        # axs.set_yticklabels(['0 withhold','0.5 chance', '1 lick'])
+        axs.set_xticks([0,1])
+        axs.set_xticklabels(['0\nnogo','1\ngo'])
+        axs.set_title(labels_models[mx])
+
+
+
+
+        # log likelihood
+        axs = ax[1,mx]
+
+        axs.plot(LLs[mx,:,0],'-',color=colors_models[mx],alpha=0.3,label='%s, train, %4.2f'%(labels_models[mx],LLs[mx,:,0].mean()))
+        axs.plot(LLs[mx,:,1],'-',color=colors_models[mx],label='%s, test %4.2f'%(labels_models[mx],LLs[mx,:,1].mean()))
+
+        axs.plot(idx_congruent_go, LLs[mx,idx_congruent_go,1],'^',color=colors_models[mx],label='congruent, go %4.2f'%LLs[mx,idx_congruent_go,1].mean())
+        axs.plot(idx_congruent_nogo, LLs[mx,idx_congruent_nogo,1],'x',color=colors_models[mx],label='congruent, nogo %4.2f'%LLs[mx,idx_congruent_nogo,1].mean())
+
+        axs.plot(idx_incongruent_go, LLs[mx,idx_incongruent_go,1],'^',color='cyan',label='incongruent, go %4.2f'%LLs[mx,idx_incongruent_go,1].mean())
+        axs.plot(idx_incongruent_nogo, LLs[mx,idx_incongruent_nogo,1],'x',color='red',label='incongruent, nogo %4.2f'%LLs[mx,idx_incongruent_nogo,1].mean())
+
+        axs.set_ylim(np.min(LLs.flatten()),0)
+
+        axs.vlines(index_contextchangepoint-0.5,axs.get_ylim()[0],axs.get_ylim()[1],ls='--',lw=2,color='black',alpha=0.2)
+
+        axs.legend(frameon=False)
+
+        if mx==0: axs.set_ylabel('single trial log likelihood')
+        axs.set_xlabel('trial number\n%s              %s'%(context_order[0],context_order[1]))
+
+
+
+
+
+    fig.suptitle('%s, cross validated linear sigmoid model fit, numbers in legend: mean trial LL'%dn)
+    fig.tight_layout()
+
+
+    save = 0 or globalsave
+    if save:
+        fig.savefig(resultpath+'strategymodel_sigmoidlinear,loglikelihood_%s'%(dn)+ext)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def behaviour_symmetry(dn,block,displaystatsonly=False):
+
+
+    recalculate = 0 or globalrecalculate
+    doplot = 0 or globaldoplot
+
+
+    # load trials data
+
+    g = preprocess.loadexperimentdata(dn)
+    g['block']+=1
+    g['success'] = g['punish']==False
+    blv,bla = preprocess.getorderattended(dn)
+
+    # apply behaviour masks
+    action = ['go','nogo']
+    congruency = ['congruent','incongruent']
+    mask_clevers_list = [[],[]] # holds context dependent list
+    mask_clevers = []           # holds indexed by original trial order
+    for c in congruency:
+        for a in action:
+            mask_clever_contexts = get_mask_cleverness(dn, ma_threshold=0.5, visualfirst=True, go=a, congruency=c)
+            for cx,mask_clever_context in enumerate(mask_clever_contexts):
+                mask_clevers_list[cx].append(mask_clever_context)
+            mask_clever = np.hstack( get_mask_cleverness(dn, ma_threshold=0.5, visualfirst=False, go=a, congruency=c) )
+            mask_clevers.append(mask_clever)
+    
+    mask_clevers_list = [ np.vstack(mask_clevers_list[cx]).T for cx in [0,1]]
+    mask_clevers = np.vstack(mask_clevers).T
+
+
+    mask_contextuals = [ np.prod(mask_clevers_list[cx],axis=1) for cx in [0,1] ]
+    # display the number of trials that has above threshold movingaverage for all 4 combinations of congruenct and action
+    print(dn, 'V:%d/%d, A:%d/%d'%(np.sum(mask_contextuals[0]), len(mask_contextuals[0]), np.sum(mask_contextuals[1]), len(mask_contextuals[1])))
+    if displaystatsonly: return
+    mask = np.bool8(np.prod(mask_clevers, axis=1))
+
+
+
+
+
+
+
+
+    # decode from full and from symmetric parts, and compare on the same plot
+    symmetrylabels = ['entire session','successful periods','error periods']
+
+
+    # setup stimulus:
+    blv,bla = preprocess.getorderattended(dn)
+    comparisongroups  = [   [ [ [], [45],    [] ],        [    [],[135],     [] ]  ], \
+                            [ [ [], [],    [5000] ],        [    [],[],     [10000] ]  ], \
+                            [ [ [blv[1]],  [],[] ], [ [bla[1]],   [],[] ]    ],     \
+                            [ [True], [False] ], \
+                        ]
+    taskaspects = ['visual','audio','context','choice']
+    columnnames = ['degree','freq','block','action']
+    class1value = [45,5000,blv[1],True,0]
+    
+    
+    # create the all trials, and just symmetriccal successful behaviour trial list
+    triallist_all = preprocess.loadexperimentdata(dn, multimodalonly=True)
+    triallist_all['block']+=1
+    triallist_symmetric = triallist_all.iloc[mask,:]
+    triallist_error = triallist_all.iloc[np.logical_not(mask),:]
+    
+
+
+    # collect neural data:
+    wx = int((50*pq.ms/T['dt']).magnitude)  # width of the feature space in time for each neuron
+    # wx = 0
+    times = block.segments[0].analogsignals[0].times
+    if wx>1: times = times[:-wx]
+    n_timestamps = len(times)
+    n_neurons = block.segments[0].analogsignals[0].shape[1]
+    n_features = n_neurons
+    n_targets = 1
+
+    allcomplextrials = [ [[2,4], [], []] ]
+    # (observations,times,features)
+    neuralactivity_all = np.array(preprocess.collect_stimulusspecificresponses(block, allcomplextrials)[0])
+    if wx>1:   # create wider feature space of several subsequent timepoints
+        neuralactivity_all = neph.slidingwindow(neuralactivity_all,wx)
+    neuralactivity_symmetric = neuralactivity_all[mask,:,:]
+    neuralactivity_error = neuralactivity_all[np.logical_not(mask),:,:]
+
+
+    # calculate decoders
+    if recalculate:
+        accuracies = np.zeros((n_timestamps,2,3,len(taskaspects),len(symmetrylabels)))
+        coefs = np.zeros((n_timestamps,n_features,3,len(taskaspects),len(symmetrylabels)))
+        for sx,(triallist,neuralactivity) in enumerate( zip( (triallist_all,triallist_symmetric, triallist_error),
+                                                             (neuralactivity_all, neuralactivity_symmetric, neuralactivity_error) )  ):
+            #
+
+            for cx,task in enumerate(taskaspects):
+                comparisonmask = []
+                for comparison in comparisongroups[cx]:
+                    if task != 'choice':
+                        comparisonmask.append( \
+                        ( (triallist['block'].isin(comparison[0])) | (len(comparison[0])==0) ) & \
+                        ( (triallist['degree'].isin(comparison[1])) | (len(comparison[1])==0) ) & \
+                        ( (triallist['freq'].isin(comparison[2])) | (len(comparison[2])==0) ) )
+                    else:
+                        comparisonmask.append( triallist['action'].isin(comparison) )
+
+                targets = np.hstack([ triallist[columnnames[cx]][comparisonmask[i]]==class1value[cx] for i in [0,1]  ])
+                predictors = np.vstack([neuralactivity[comparisonmask[i],:,:] for i in [0,1]])
+
+                # fill out the targets axes, with dimensions = (observations,timepoints,features)
+                targets = np.tile(targets, [1,len(times),1])
+                targets = np.swapaxes(targets, 0, 2)
+
+                accuracy,coef = nedi.get_linearregressionmultivariate(predictors,targets,times,'classification')
+                
+                # reshape to average over feature timewidth
+                if wx>1:
+                    coef = np.reshape(coef, [coef.shape[0], n_targets, wx, n_neurons, 3]).mean(axis=2)
+
+                # (n_timestamps,train/test,stats,task,symmetry)
+                accuracies[:,:,:,cx,sx] = accuracy.squeeze()
+                # (n_timestamps,n_features,stats,task,symmetry)
+                coefs[:,:,:,cx,sx] = coef.squeeze()
+
+                
+
+        pickle.dump((accuracies,coefs), open(cacheprefix+'symmetry/neural,VACC-all,symmetric-decoder,timecourse_%s.pck'%(dn), 'wb'))
+    else:
+        accuracies,coefs = pickle.load(open(cacheprefix+'symmetry/neural,VACC-all,symmetric-decoder,timecourse_%s.pck'%(dn), 'rb'))
+
+
+
+
+
+    if doplot or globaldoplot:
+
+
+        fig,ax = plt.subplots(len(symmetrylabels),len(taskaspects), figsize=(len(taskaspects)*8,len(symmetrylabels)*8) )
+        taskcolors = ['navy','darkgreen','mediumvioletred','darkorange']
+
+
+        for sx,symmetry in enumerate(symmetrylabels):
+            for cx,task in enumerate(taskaspects):
+                
+                axs = ax[sx,cx]
+                colors = ['grey',taskcolors[cx]]
+
+                for k in [0,1]:
+                    if k==0: continue
+
+                    # (n_timestamps,train/test,stats,task,symmetry)
+                    m = accuracies[:,k,0,cx,sx]
+                    e = accuracies[:,k,2,cx,sx]
+                    axs.plot(times, m, color=colors[k], lw=3, label=['train','test'][k])
+                    axs.fill_between(times, m-e, m+e, color=colors[k], alpha=0.3)
+
+                figs.setxt(axs)
+                axs.set_ylim(0.45,1.05)
+                figs.plottoaxis_stimulusoverlay(axs,T)
+                figs.plottoaxis_chancelevel(axs,0.5)
+
+
+                if sx==0: axs.set_title(task)
+                if cx==0: axs.set_ylabel('%s\naccuracy'%symmetry)
+                # if cx==0 and sx==0: axs.legend(frameon=False)
+
+
+        fig.suptitle(dn+' task variable decoders entire session vs. successfully symmetric behaviour trials'+\
+                         '\n%d neurons, V:%d,%d, A:%d,%d trials'%(n_neurons,\
+                          len(mask_contextuals[0]), np.sum(mask_contextuals[0]),\
+                          len(mask_contextuals[1]), np.sum(mask_contextuals[1])  )  )
+
+        save = 0 or globalsave
+        if save:
+            fig.savefig(resultpath+'decode,VACC-all,symmetric,error_%s'%(dn)+ext)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def behaviour_symmetry_context(dn,block,equalize=False,n_bootstrap=2,displaystatsonly=False):
+
+
+    recalculate = 0 or globalrecalculate
+    doplot = 0 or globaldoplot
+
+
+    # load trials data
+    g = preprocess.loadexperimentdata(dn, full=False, multimodalonly=True)
+    g['block']+=1
+    g['success'] = g['punish']==False
+    blv,bla = preprocess.getorderattended(dn)
+
+
+    # apply behaviour masks, to get a "clever"=True mask for all trials
+    ma = 20
+    ma_th = 0.5
+    action = ['go','nogo']
+    congruency = ['congruent','incongruent']
+    mask_clevers_list = [[],[]] # holds context dependent list
+    mask_clevers = []           # holds indexed by original trial order
+    for c in congruency:
+        for a in action:
+            mask_clever_contexts = get_mask_cleverness(dn, ma=ma, ma_threshold=ma_th, visualfirst=False, go=a, congruency=c)
+            for cx,mask_clever_context in enumerate(mask_clever_contexts):
+                mask_clevers_list[cx].append(mask_clever_context)
+            mask_clever = np.hstack( get_mask_cleverness(dn, ma=ma, ma_threshold=ma_th, visualfirst=False, go=a, congruency=c) )
+            mask_clevers.append(mask_clever)
+    
+    mask_clevers_list = [ np.vstack(mask_clevers_list[cx]).T for cx in [0,1]]
+    mask_clevers = np.vstack(mask_clevers).T
+
+
+    mask_contextuals = [ np.prod(mask_clevers_list[cx],axis=1) for cx in [0,1] ]
+    # display the number of trials that has above threshold movingaverage for all 4 combinations of congruenct and action
+    trialslabel = '1st(%s):%d/%d, 2nd(%s):%d/%d'%(['V','A'][blv[1]==4],np.sum(mask_contextuals[0]), len(mask_contextuals[0]), ['A','V'][blv[1]==4], np.sum(mask_contextuals[1]), len(mask_contextuals[1]))
+    print(dn, trialslabel)
+
+    # mask variable for concatenated contexts, symmetric True for clever, antisymmetric True for clueless
+    mask_symmetric_origin = np.bool8(np.prod(mask_clevers, axis=1))
+    mask_antisymmetric_origin = np.logical_not(mask_symmetric_origin)
+    print('trial counts concatenated sym: %d/%d, ant: %d/%d'%(np.sum(mask_symmetric_origin), len(mask_symmetric_origin), np.sum(mask_antisymmetric_origin), len(mask_antisymmetric_origin)))
+
+
+
+
+
+
+
+
+
+
+
+    # decode 4 way same and cross from from symmetric and antisymmetric parts, and compare on randomized equal subsamples
+    symmetrylabels = [['symmetric->symmetric','symmetric->antisymmetric'],['antisymmetric->antisymmetric','antisymmetric->symmetric']]
+
+    
+    
+    # create the all trials, and just symmetrical symmetric behaviour trial list
+    triallist = preprocess.loadexperimentdata(dn, multimodalonly=True)
+    triallist['block']+=1
+    
+    # setup stimulus, and target labels for decoding:
+    blv,bla = preprocess.getorderattended(dn)
+    comparisongroups  = [blv[1], bla[1]]
+    class1value = blv[1]
+    classlabels = (triallist['block']==class1value)
+
+
+    # collect neural data:
+    wx = int((50*pq.ms/T['dt']).magnitude)  # width of the feature space in time for each neuron
+    # wx = 0
+    times = block.segments[0].analogsignals[0].times
+    if wx>1: times = times[:-wx]
+    n_timestamps = len(times)
+    n_neurons = block.segments[0].analogsignals[0].shape[1]
+    n_features = n_neurons
+    n_targets = 1             # univariate targets
+
+    allcomplextrials = [ [[2,4], [], []] ]
+    # (observations,times,features)
+    neuralactivity = np.array(preprocess.collect_stimulusspecificresponses(block, allcomplextrials)[0])
+    if wx>1:   # create wider feature space of several subsequent timepoints
+        neuralactivity = neph.slidingwindow(neuralactivity,wx)
+
+
+
+
+
+
+
+
+
+
+
+    # calculate decoders
+    if recalculate:
+
+        np.random.seed(seed=0)
+
+        accuracies = np.zeros((n_bootstrap,n_timestamps,2+2,3,2)) # (bootstraps,times,train-test-crosstrain-crosstest,stats,symmetrytrain)
+        coefs = np.zeros((n_bootstrap,n_timestamps,n_features,3,2)) # (bootstraps,times,n_neurons,stats,symmetrytrain)
+
+        for b in range(n_bootstrap):
+
+            # randomly equalize train test trial set sizes and in both contexts
+            if equalize:
+                equalizelabel = 'equalized-'
+
+                # collect first context symmetric, antisymmetric, then second context sy, as
+                trials = [ np.copy(mask_contextuals[0]), 1-np.copy(mask_contextuals[0]), np.copy(mask_contextuals[1]), 1-np.copy(mask_contextuals[1]) ]
+                trialnumbers = [ np.sum(trial) for trial in trials ]
+                if b==0: print(trialnumbers)
+                wh = np.argmin(trialnumbers)                
+                minimumtrials = trialnumbers[wh]
+                # print(dn,minimumtrials); return
+                mask_equalizer = trials
+                for sx in range(4):
+                    if sx==wh: continue     # no need to resample the smallest fraction
+                    indexlist = np.where(trials[sx]==1)[0]   # find active trials
+                    discardindexlist = indexlist[np.random.permutation(len(indexlist))][:len(indexlist)-minimumtrials]   # subsample index of active trials
+                    mask_equalizer[sx][discardindexlist] = 0        # do the subsampling by putting false into the mask for the not used trials
+                # this will be (trials,symmetrytype)
+                mask_equalizer_symmetric = np.hstack([mask_equalizer[0],mask_equalizer[2]]).astype(np.bool8)
+                mask_equalizer_antisymmetric = np.hstack([mask_equalizer[1],mask_equalizer[3]]).astype(np.bool8)
+
+
+                mask_symmetric = mask_symmetric_origin * mask_equalizer_symmetric
+                mask_antisymmetric = mask_antisymmetric_origin * mask_equalizer_antisymmetric
+
+            else:
+                equalizelabel = ''
+
+        
+
+
+
+
+
+            
+            
+            # for sx,(triallist,neuralactivity) in enumerate( zip( triallist_comparisons, neuralactivity_comparisons)  ):
+            for sx,(mask_train,mask_test) in enumerate(zip((mask_symmetric,mask_antisymmetric), (mask_antisymmetric, mask_symmetric))):
+                    if b==0: print('crossdecoding',symmetrylabels[sx])
+                    if sx==1: print('bootstrap %d/%d'%(b+1,n_bootstrap))
+
+                    targets = classlabels
+                    predictors = neuralactivity
+
+
+
+                    # fill out the targets axes, with dimensions = (observations,timepoints,features)
+                    targets = np.tile(targets, [1,len(times),1])
+                    targets = np.swapaxes(targets, 0, 2)
+
+                    accuracy,coef = nedi.get_linearregressionmultivariate(predictors,targets,times,'crossclassification', 'loo',\
+                                                                        crossindicestrain=mask_train,crossindicestest=mask_test)
+                    
+                    # reshape to average over feature timewidth
+                    if wx>1:
+                        coef = np.reshape(coef, [coef.shape[0], n_targets, wx, n_neurons, 3]).mean(axis=2)
+
+
+                    accuracies[b,:,:,:,sx] = accuracy.squeeze() # (bootstrap, times,train-test-crosstrain-crosstest,stats,symmetrytrain)
+                    coefs[b,:,:,:,sx] = coef.squeeze() # (bootstrap, times,n_neurons,stats,symmetrytrain)
+
+
+
+
+        # do for all trials as control    
+        print('decoding all trials')
+        targets = classlabels
+        predictors = neuralactivity
+        targets = np.tile(targets, [1,n_timestamps,1])
+        targets = np.swapaxes(targets, 0, 2)
+        accuracy,coef = nedi.get_linearregressionmultivariate(predictors,targets,times,'classification')
+        if wx>1: coef = np.reshape(coef, [coef.shape[0], 1, wx, n_neurons, 3]).mean(axis=2)
+        accuracyall = accuracy.squeeze()
+        coefsall = coef.squeeze()
+
+
+
+
+        pickle.dump((accuracies,coefs,accuracyall,coefsall), open(cacheprefix+'symmetry/neural,context-%ssymmetric,antisymmetric,cross-decoder-loo,boots,timecourse_%s.pck'%(equalizelabel,dn), 'wb'))
+    else:
+        if equalize: equalizelabel = 'equalized-'
+        else: equalizelabel = ''
+
+        accuracies,coefs,accuracyall,coefsall = pickle.load(open(cacheprefix+'symmetry/neural,context-%ssymmetric,antisymmetric,cross-decoder-loo,boots,timecourse_%s.pck'%(equalizelabel,dn), 'rb'))
+        n_bootstrap = accuracies.shape[0]
+
+    if n_bootstrap>1: loobootstraplabel = 'bootstrap-lo(p)o'
+    else: loobootstraplabel = ''
+
+
+
+    accuracies_m = accuracies.mean(axis=0)
+    accuracies_e = accuracies.std(axis=0)/np.sqrt(n_bootstrap)
+
+
+
+    if doplot or globaldoplot:
+
+        # get baseline shuffle:
+        n_resample = 10
+        chances = pickle.load(open(cacheprefix+'subspaces/chances,allmice,resampled-full,r%d-%s.pck'%(n_resample,continuous_method),'rb'))
+        chances_reduced = pickle.load(open(cacheprefix+'subspaces/chances,allmice,resampled-full,r%d,reduced-%s.pck'%(n_resample,continuous_method),'rb'))
+
+        fig,ax = plt.subplots(1,3, figsize=(3*10,1*8) )
+
+        # plot all trials
+        axs = ax[0]
+        colors = ['grey','mediumvioletred']
+        for k in [0,1]:
+            if k==0: continue
+
+            # (n_timestamps,train/test,stats,task,symmetry)
+            m = accuracyall[:,k,0]
+            e = accuracyall[:,k,2]
+            axs.plot(times, m, color=colors[k], lw=3, label='entire session')
+            axs.fill_between(times, m-e, m+e, color=colors[k], alpha=0.3)
+        figs.setxt(axs)
+        axs.set_ylim(0.45,1.05)
+        figs.plottoaxis_stimulusoverlay(axs,T)
+        figs.plottoaxis_chancelevel(axs,0.5)
+        figs.plottoaxis_chancelevel(axs,chances[dn])
+
+        axs.legend(frameon=False)
+
+        axs.set_ylabel('accuracy')
+        
+        
+        
+        # plot crossdecoding
+        symmetrycolors = [['rebeccapurple','gold'],['darkorange','fuchsia']]
+        for rx in range(2):             # train subset
+            for sx in range(2):         # crosstest subset (same or cross)
+                
+                axs = ax[1+rx]
+                colors = ['grey',symmetrycolors[rx][sx]]
+
+                for k in [0,1]:
+                    if k==0: continue             # exclude test
+
+                    # (n_timestamps,train/test,stats,task,symmetry)
+                    m = accuracies_m[:,k+sx*2,0,rx]
+                    e =  np.sqrt(accuracies_m[:,k+sx*2,2,rx]**2 + accuracies_e[:,k+sx*2,2,rx]**2)
+                    axs.plot(times, m, color=colors[k], lw=2, label=[None,symmetrylabels[rx][sx]][k])
+                    axs.fill_between(times, m-e, m+e, color=colors[k], alpha=0.3)
+
+            figs.plottoaxis_chancelevel(axs,chances_reduced[dn])
+            figs.setxt(axs)
+            axs.set_ylim(0.45,1.05)
+            figs.plottoaxis_stimulusoverlay(axs,T)
+            figs.plottoaxis_chancelevel(axs,0.5)
+
+            axs.legend(frameon=False)
+
+
+
+
+
+        fig.suptitle(dn+' task variable decoders entire session vs. successfully symmetric behaviour trials'+\
+                         '\n%d neurons, %s trials %s %s'%(n_neurons, trialslabel, equalizelabel[:-1], loobootstraplabel  )  )
+
+        save = 0 or globalsave
+        if save:
+            fig.savefig(resultpath+'decode-loo,boots,context-%ssymmetric,antisymmetric,cross_%s'%(equalizelabel,dn)+ext)
 
 

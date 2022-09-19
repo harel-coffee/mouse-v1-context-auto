@@ -360,7 +360,7 @@ def aggregatemice_relevantirrelevant_behaviour(datanames):
 
 
 
-def aggregatemice_relevantirrelevant_singletrialneuralbehaviour(datanames):
+def aggregatemice_singletrialneuralbehaviour_relevantirrelevantcongruentconflicting(datanames):
      # decode the relevant and the irrelevant stimuli, and congruent and conflicting stimuli trials separately, and for the two contexts
 
     recalculate = 0 or globalrecalculate
@@ -441,8 +441,6 @@ def aggregatemice_relevantirrelevant_singletrialneuralbehaviour(datanames):
     if doplot:
 
 
-
-
         fig,ax = plt.subplots(4,2,figsize=(3*12,4*12))
         # we want to compare correct against error trials' class probability predictions
         # we have to do it for go and nogo trials separately (as they are the classes)
@@ -476,10 +474,13 @@ def aggregatemice_relevantirrelevant_singletrialneuralbehaviour(datanames):
 
         fig.suptitle('%d ACC mice, probability of predicted stimuli representations in two contexts in correct and error trials'%n_mice)
         
+        fig.tight_layout()
+
         save = 0 or globalsave
         if save:
             fig.savefig(resultpath+'relevantirrelevant+congruentconflict,singletrialneuralbehaviour_ACC_%s-%dms'%(continuous_method,T['dt'])+ext)
 
+    return
 
 
 
@@ -488,6 +489,228 @@ def aggregatemice_relevantirrelevant_singletrialneuralbehaviour(datanames):
 
 
 
+
+
+
+
+
+
+def aggregatemice_singletrialneuralbehaviour_context(datanames):
+    # decode the context, display probability for trials separately
+
+
+    recalculate = 0 or globalrecalculate
+    doplot = 0 or globaldoplot
+
+
+    n_mice = len(datanames)
+
+
+    taskaspects = ['context']
+    classlabels = ['visual','audio']
+    
+    width = 50*pq.ms
+
+
+
+
+
+    masks_all = [[] for cx in range(4)]
+    perftask_all = [[] for cx in range(len(taskaspects))]
+    probasignals_tasks_all = [ [] for cx in range(len(taskaspects)) ]
+
+
+    for n,dn in enumerate(datanames):
+
+
+        # setup stimulus: 
+
+
+        blv,bla = preprocess.getorderattended(dn)
+        comparisongroups  = [\
+                                [ [ [blv[1]], [],      [] ], [ [bla[1]],   [],      [] ]  ], \
+                            ]
+
+
+        # create base mask for conditioned testing of decoder; always two element list for the two classes of context
+        g = preprocess.loadexperimentdata(dn)
+        g['block']+=1
+        mask_base = [ g[ g['block'].isin([blv[1]]) ], g[ g['block'].isin([bla[1]]) ] ]
+        # mask_base = g[ g['block'].isin([blv[1],bla[1]]) ]
+        # create specific masks
+        masks = [ [ ((mb['degree']==45) & (mb['freq']==5000))                  for mb in mask_base ],\
+                [ ((mb['degree']==135) & (mb['freq']==10000))                for mb in mask_base ],\
+                [ ((mask_base[0]['degree']==45) & (mask_base[0]['freq']==10000)),  ((mask_base[1]['degree']==135) & (mask_base[1]['freq']==5000)) ],\
+                [ ((mask_base[0]['degree']==135) & (mask_base[0]['freq']==5000)),  ((mask_base[1]['degree']==45) & (mask_base[1]['freq']==10000)) ],\
+                ]
+        masks = np.array([  np.concatenate([mask[0],mask[1]]) for mask in masks        ])
+        mask_labels = ['cong,go,correct','cong,go,error','cong,nogo,correct','cong,nogo,error',\
+                    'confl,go,correct','confl,go,error','confl,nogo,correct','confl,nogo,error']
+
+        for mx in range(4):
+            masks_all[mx].extend(masks[mx])
+
+
+
+        # assess performance
+        perftask = preprocess.get_conditioned_behaviour_singletrial(dn,comparisongroups,taskaspects,classlabels=classlabels)
+
+
+        for cx,comparison in enumerate(taskaspects):
+            if n==0:
+                perftask_all[cx] = perftask[cx]
+            else:
+                perftask_all[cx] = pd.concat((perftask_all[cx], perftask[cx]), axis=0)
+        
+
+
+
+
+
+
+
+
+
+        # assess neural
+        probasignals_tasks = []
+        for cx,comparison in enumerate(taskaspects):
+            probasignals, acc = pickle.load(open(cacheprefix+'acc/singletrialneuralbehaviour_%s_%s-%s.pck'%(comparison,dn,continuous_method),'rb'))
+            if dn=='AC003': probasignals = 1 - probasignals
+            probasignals_tasks.append(probasignals)
+            if n==0:
+                probasignals_tasks_all[cx] = probasignals
+            else:
+                probasignals_tasks_all[cx] = np.concatenate( (probasignals_tasks_all[cx],probasignals), axis=0 )
+
+
+
+        # for i in range(len(taskaspects)):
+        #     print(perftask[i].shape,probasignals_tasks[i].shape)
+
+
+    masks_all = [  np.array(mask_all)  for mask_all in masks_all]
+
+    n_trials = perftask_all[cx].shape[0]
+    
+    for cx,comparison in enumerate(taskaspects):
+        print(comparison, perftask_all[cx].shape,probasignals_tasks_all[cx].shape,masks_all[0].shape,masks_all[1].shape)
+
+
+
+    
+
+
+    if doplot:
+
+        if 0:
+
+            fig,ax = plt.subplots(1,1,figsize=(1*17,1*14))
+            # we want to compare correct against error trials' class probability predictions
+            # we have to do it for both contexts separately (as they are the classes)
+
+            ix = 0   # we only have context
+            axs = ax
+
+
+            y_pre = probasignals_tasks_all[ix].magnitude[:,0:150].mean(axis=1)
+            y_early = probasignals_tasks_all[ix].magnitude[:,150:300].mean(axis=1)
+            y_late = probasignals_tasks_all[ix].magnitude[:,300:450].mean(axis=1)
+            
+            for clx,signal in enumerate(classlabels):    # choose the two classes the decoder separated
+                s = signal
+
+                mask_correct = perftask_all[ix][signal]==1     # correct trials
+                mask_error = perftask_all[ix][signal]==0       # error trials
+
+                # axs.boxplot(x=[y_early[mask_correct],y_early[mask_error]],positions=[0+clx*2.5,6+clx*2.5],labels=['%s\nearly\ncorrect'%s,'%s\nearly\nerror'%s], notch=True)
+                # axs.boxplot(x=[y_late[mask_correct],y_late[mask_error]], positions=[1+clx*2.5,7+clx*2.5],labels=['%s\nlate\ncorrect'%s,'%s\nlate\nerror'%s], notch=True)
+
+                for yx,(y,lab) in enumerate(zip([y_pre,y_early,y_late],['pre','early','late'])):
+                    axs.boxplot(x=[y[mask_correct],y[mask_error]],positions=[0+yx*7+clx*3,1.5+yx*7+clx*3],widths=0.8,labels=['%s\n%s\ncorrect'%(s,lab),'%s\n%s\nerror'%(s,lab)], notch=True)
+                    y_logit = np.log(y/(1-y))
+                    _,p = sp.stats.ttest_ind(y[mask_correct],y[mask_error])
+                    _,p_logit = sp.stats.ttest_ind(y_logit[mask_correct],y_logit[mask_error])
+                    axs.text(0.75+yx*7+clx*3,1.18,'prob t p=%5.4f\n odds t p=%5.4f'%(p,p_logit),horizontalalignment='center',verticalalignment='top',fontsize=15)
+                    
+
+            axs.set_yticks([0,1])
+            axs.set_yticklabels([ 'P(%s)=1'%cs for cs in classlabels ])
+            axs.set_ylim(-0.2,1.2)
+            figs.plottoaxis_chancelevel(axs,0.5)
+
+            if cx==0: axs.set_ylabel('predicted probability, neural decoder')
+
+
+            axs.set_title(taskaspects[ix],fontsize=20)
+
+
+            fig.suptitle('%d ACC mice, %d trials, probability of\npredicted context representations in correct and error trials'%(n_mice,n_trials))
+            
+            save = 0 or globalsave
+            if save:
+                fig.savefig(resultpath+'context,singletrialneuralbehaviour_ACC_%s-%dms'%(continuous_method,T['dt'])+ext)
+
+
+        if 1:
+
+
+            fig,ax = plt.subplots(1,1,figsize=(1*17,1*14))
+
+            ix = 0   # we only have context
+            # x = perftask[ix]
+            y_pre = probasignals_tasks_all[ix].magnitude[:,0:150].mean(axis=1)
+            y_early = probasignals_tasks_all[ix].magnitude[:,150:300].mean(axis=1)
+            y_late = probasignals_tasks_all[ix].magnitude[:,300:450].mean(axis=1)
+
+
+            # for mx,mask in enumerate(masks):
+            axs = ax
+            for clx,signal in enumerate(classlabels):    # choose the two classes the decoder separated
+                s = signal
+
+
+                mask_correct = perftask_all[ix][signal]==1     # correct trials
+                mask_error = perftask_all[ix][signal]==0       # error trials
+
+                print(mask_correct.shape,mask_error.shape, masks_all[0].shape)
+
+                for yx,(y,lab) in enumerate(zip([y_pre,y_early,y_late],['pre','early','late'])):
+
+                    ylist = []
+                    for mask in masks_all:
+                        ylist.extend( [ y[mask & mask_correct], y[mask & mask_error] ] )
+                    parts = [0,1,3,4,6,7,9,10]
+                    axs.boxplot(x=ylist,positions=[mx*0.6+yx*20+clx*10 for mx in parts], labels=None, widths=0.55, notch=True)
+                    for mx,m in enumerate(parts):
+                        axs.text(m*0.6+yx*20+clx*10,1.45,mask_labels[mx],rotation=90, horizontalalignment='center', verticalalignment='center',fontsize=10)
+                        if mx%2==1:
+                            y_logits = [np.log(ylist[mx-1]/(1-ylist[mx-1])), np.log(ylist[mx]/(1-ylist[mx])) ]
+                            _,p = sp.stats.ttest_ind(ylist[mx-1],ylist[mx])
+                            _,p_logit = sp.stats.ttest_ind(y_logits[0],y_logits[1])
+                            axs.text(m*0.6-0.5+yx*20+clx*10,1.3,'prob t p=%5.4f\n odds t p=%5.4f'%(p,p_logit),rotation=90,horizontalalignment='center',verticalalignment='top',fontsize=7)
+                    axs.text(4.5*0.6+yx*20+clx*10,-0.05,'attend %s\n%s'%(signal,lab),horizontalalignment='center', verticalalignment='center',fontsize=10)
+                    
+            axs.set_xticklabels([])
+            axs.set_yticks([0,1])
+            axs.set_yticklabels([ 'P(%s)=1'%cs for cs in classlabels ])
+            axs.set_ylim(-0.1,1.6)
+            figs.plottoaxis_chancelevel(axs,0.5)
+
+            if cx==0: axs.set_ylabel('class prob.')
+
+
+            axs.set_title(taskaspects[ix],fontsize=20)
+
+            fig.suptitle('%d ACC mice, %d trials, probability of predicted\nrepresentations of context in congruent and conflicting trials'%(n_mice,n_trials))
+            
+
+            fig.tight_layout()
+
+            save = 0 or globalsave
+            if save:
+                fig.savefig(resultpath+'context,singletrialneuralbehaviour-conditioned_ACC_%s-%dms'%(continuous_method,T['dt'])+ext)            
+
+    return
 
 
 
@@ -1396,6 +1619,352 @@ def aggregatemice_spontaneousdecoder(datanames,examine='allexpcond'):
 #            c_db.append(  np.reshape(np.array(acrossdecoder[7:]), (wx,n_neuron,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)    )
 #        
 #        c_db = np.array(c_db)
+
+
+
+
+
+
+
+def aggregatemice_crosscontextdecoder(datanames):
+
+
+
+    correctonly = 0        # all trials
+
+
+
+    taskaspects = ['attend visual','ignore visual']
+    filename = ['crosscontext,attendattend','crosscontext,ignoreignore','crosscontext,attendignore','crosscontext,ignoreattend']
+
+    times = np.arange(-1500,4510,10)[:596]*pq.ms
+
+    labels = np.hstack((datanames,'all'))
+
+    crossdecoders_all = []
+    for n,dn in enumerate(datanames):
+
+        crossdecoders = []  
+        projections = []  #  (mice) x {trainedattend,trainedignore} x {prestim,onstim} x {testedignore,testedattend} x {go,nogo}
+        variances = []  # (mice) x {train: attend,ignore} x {test: attend,ignore} x {class 1, class 2, class 1+2}
+
+        for trainedwhere in [0,1]:
+            trainidx = trainedwhere
+            testidx = 1-trainedwhere
+            filenameidx = np.array([[0,2],[3,1]])[trainidx,testidx]
+
+            crossdecoder = pickle.load(open(cacheprefix+'continuous/responsedecodes,%s%s_%s-%s.pck'%(filename[filenameidx],['',',correctonly'][correctonly],dn,continuous_method),'rb'))
+            crossdecoders.append(crossdecoder)
+
+            projection,variance = pickle.load(open(cacheprefix+'continuous/%s%s,projections,variance_%s-%s.pck'%('cross',['',',correctonly'][correctonly],dn,continuous_method),'rb'))
+            projections.append(projection)
+            variances.append(variance)
+
+
+            # print(dn,len(crossdecoder),len(crossdecoder[trainedwhere]),len(crossdecoder[trainedwhere][0]))
+        
+        crossdecoders_all.append(crossdecoders)
+
+
+
+    fig,ax = plt.subplots(4,3,figsize=(3*1.41*8,4*8))
+
+
+    # cross decoders
+    for trainedwhere in [0,1]:
+        M = []
+        for n,dn in enumerate(datanames):
+            axs = ax[0,trainedwhere]
+            axs.plot(times,crossdecoders_all[n][trainedwhere][1][:,0], color='black')
+            axs.plot(times,crossdecoders_all[n][trainedwhere][2][:,0], color='red')
+            
+            axs = ax[1,trainedwhere]
+            m = crossdecoders_all[n][trainedwhere][1][:,0]-crossdecoders_all[n][trainedwhere][2][:,0]
+            axs.plot(times,m, label=dn)
+        
+            M.append(m)
+
+            axs = ax[2,trainedwhere]    
+            axs.boxplot(positions=[n], x=m[150:450], notch=True, whis=[5,95], showfliers=False)
+            
+            axs = ax[3,trainedwhere]    
+            axs.boxplot(positions=[n], x=m[150:200], notch=True, whis=[5,95], showfliers=False)
+
+
+        M = np.array(M)
+
+        axs = ax[2,trainedwhere]    
+        axs.boxplot(positions=[n+2], x=np.vstack(M[:,150:450]), notch=True, whis=[5,95], showfliers=False)
+        
+        axs = ax[3,trainedwhere]    
+        axs.boxplot(positions=[n+2], x=np.vstack(M[:,150:200]), notch=True, whis=[5,95], showfliers=False)
+
+
+        ax[0,trainedwhere].set_ylim(0.45,1.05)
+        figs.plottoaxis_stimulusoverlay(ax[0,trainedwhere],T)
+        ax[0,trainedwhere].legend(['same','cross'],frameon=False)
+
+
+        figs.plottoaxis_stimulusoverlay(ax[1,trainedwhere],T)
+
+
+        figs.plottoaxis_chancelevel(ax[2,trainedwhere])
+        ax[2,trainedwhere].set_ylim(-0.3,0.3)
+        ax[2,trainedwhere].set_xticklabels([])
+
+
+        figs.plottoaxis_chancelevel(ax[3,trainedwhere])
+        ax[3,trainedwhere].set_ylim(-0.3,0.3)
+        ax[3,trainedwhere].set_xticklabels(labels,rotation=60)
+
+
+
+
+
+
+    ax[0,0].set_title('visual context')
+    ax[0,1].set_title('audio context')
+    ax[0,0].set_ylabel('accuracy')
+
+    ax[1,0].set_ylabel('same$-$cross\naccuracy difference\nover time')
+
+    ax[2,0].set_ylabel('same$-$cross\naccuracy difference\ndistribution, on stim')
+
+    ax[3,0].set_ylabel('same$-$cross\naccuracy difference\ndistribution, on stim 0-0.5 sec')
+
+
+
+
+
+    ax[1,2].set_ylabel('visual$-$audio\naccuracy difference\nover time')
+
+    ax[2,2].set_ylabel('visual$-$audio\naccuracy difference\ndistribution, on stim')
+
+    ax[3,2].set_ylabel('visual$-$audio\naccuracy difference\ndistribution, on stim 0-0.5 sec')
+
+
+
+
+
+
+
+
+
+
+    
+    # difference between same decoders
+    M = []
+    for n,dn in enumerate(datanames):
+        axs = ax[1,2]
+        m = crossdecoders_all[n][1][1][:,0]-crossdecoders_all[n][0][1][:,0]    # (animal)(trainblock)(tr,te,cte)(times,stats)
+        axs.plot(times,m, label=dn)
+        M.append(m)
+
+
+        axs = ax[2,2]
+        axs.boxplot(positions=[n], x=m[150:450], notch=True, whis=[5,95], showfliers=False)
+        
+        axs = ax[3,2]
+        axs.boxplot(positions=[n], x=m[150:200], notch=True, whis=[5,95], showfliers=False)
+
+        
+
+
+
+    M = np.array(M)
+    
+    ax[1,2].set_title('visual$-$audio')
+
+    axs = ax[2,2]
+    axs.boxplot(positions=[n+2], x=np.vstack(M[:,150:450]), notch=True, whis=[5,95], showfliers=False)
+    
+    axs = ax[3,2]
+    axs.boxplot(positions=[n+2], x=np.vstack(M[:,150:200]), notch=True, whis=[5,95], showfliers=False)
+
+
+
+    figs.plottoaxis_stimulusoverlay(ax[1,2],T)
+
+
+
+    figs.plottoaxis_chancelevel(ax[2,2])
+    ax[2,2].set_ylim(-0.3,0.3)
+    ax[2,2].set_xticklabels([])
+
+
+    figs.plottoaxis_chancelevel(ax[3,2])
+    ax[3,2].set_ylim(-0.3,0.3)
+    ax[3,2].set_xticklabels(labels,rotation=60)
+
+
+    S = np.vstack(M[:,150:200])
+    t,p = sp.stats.ttest_1samp(S,0)
+    print('timepoints: t',t,'p',p,'m+/-sem',S.mean(),'+/-', S.std()/np.sqrt(len(S)), 'std', S.std())
+    R = M[:,150:200].mean(axis=1)
+    t,p = sp.stats.ttest_1samp(R,0)
+    print('mice:       t',t,'p',p,'m+/-sem',R.mean(),'+/-',R.std()/np.sqrt(len(R)),'std', R.std())
+
+
+    ax[0,2].remove()
+
+
+    fig.suptitle('visual decoding within and across contexts')
+    fig.tight_layout()
+
+
+    save = 0 or globaldoplot
+    if save:
+        fig.savefig(resultpath+'crosscontext,visual-tribe'+ext)
+
+    return
+
+
+
+
+
+
+
+
+
+
+def aggregatemice_acrosscontextcomparison(datanames):
+    
+
+
+
+
+    taskaspects = ['attend visual','ignore visual']
+    filename = ['crosscontext,attendattend','crosscontext,ignoreignore','crosscontext,attendignore','crosscontext,ignoreattend']
+
+    times = np.arange(-1500,4510,10)[:596]*pq.ms
+
+    labels = np.hstack((datanames,'all'))
+
+    acrossdecoders_all = []       # (mice)(taskaspects)(times,stats)
+    for n,dn in enumerate(datanames):
+
+        taskaspects = ['visual,av','visual,aa','audio,aa','audio,av']
+        
+        acrossdecoders = []
+        for cx,comparison in enumerate(taskaspects):
+            acrossdecoder = pickle.load(open(cacheprefix+'continuous/acrosscontextcomparison-%s_%s-%s.pck'%(comparison,dn,continuous_method),'rb'))
+            acrossdecoders.append(acrossdecoder)
+
+            print(dn,cx,len(acrossdecoder))
+        acrossdecoders_all.append(acrossdecoders)
+
+    acrossdecoders_all = np.array(acrossdecoders_all)
+
+
+    fig,ax = plt.subplots(4,2,figsize=(2*1.41*8,4*8))
+
+
+    # cross decoders
+    for mx in range(2):
+        M = []
+        for n,dn in enumerate(datanames):
+            axs = ax[0,mx]
+            axs.plot(times,acrossdecoders_all[n][mx*2][1][:,0], color='black')
+            axs.plot(times,acrossdecoders_all[n][mx*2+1][1][:,0], color='red')
+            
+            axs = ax[1,mx]
+            m = acrossdecoders_all[n][mx*2][1][:,0]-acrossdecoders_all[n][mx*2+1][1][:,0]
+            axs.plot(times,m, label=dn)
+        
+            M.append(m)
+
+            axs = ax[2,mx]
+            axs.boxplot(positions=[n], x=m[150:450], notch=True, whis=[5,95], showfliers=False)
+            
+            axs = ax[3,mx]
+            axs.boxplot(positions=[n], x=m[150:200], notch=True, whis=[5,95], showfliers=False)
+
+
+        M = np.array(M)
+
+        axs = ax[2,mx]
+        axs.boxplot(positions=[n+2], x=np.vstack(M[:,150:450]), notch=True, whis=[5,95], showfliers=False)
+        
+        axs = ax[3,mx]
+        axs.boxplot(positions=[n+2], x=np.vstack(M[:,150:200]), notch=True, whis=[5,95], showfliers=False)
+
+
+        ax[0,mx].set_ylim(0.45,1.05)
+        figs.plottoaxis_stimulusoverlay(ax[0,mx],T)
+        ax[0,mx].legend(['attend','ignore'],frameon=False)
+
+
+
+        figs.plottoaxis_stimulusoverlay(ax[1,mx],T)
+
+
+        figs.plottoaxis_chancelevel(ax[2,mx])
+        ax[2,mx].set_ylim(-0.3,0.3)
+        ax[2,mx].set_xticklabels([])
+
+
+        figs.plottoaxis_chancelevel(ax[3,mx])
+        ax[3,mx].set_ylim(-0.3,0.3)
+        ax[3,mx].set_xticklabels(labels,rotation=60)
+
+
+        # stats
+        print(['visual','audio'][mx], 'stats')
+        S = np.vstack(M[:,150:200])
+        t,p = sp.stats.ttest_1samp(S,0)
+        print('timepoints: t',t,'p',p,'m+/-sem',S.mean(),'+/-', S.std()/np.sqrt(len(S)), 'std', S.std())
+        R = M[:,150:200].mean(axis=1)
+        t,p = sp.stats.ttest_1samp(R,0)
+        print('mice:       t',t,'p',p,'m+/-sem',R.mean(),'+/-',R.std()/np.sqrt(len(R)),'std', R.std())
+
+
+
+
+
+
+    ax[0,0].set_title('visual')
+    ax[0,1].set_title('audio')
+    ax[0,0].set_ylabel('accuracy')
+
+    # ax[1,0].set_ylabel('same$-$cross\naccuracy difference\nover time')
+
+    # ax[2,0].set_ylabel('same$-$cross\naccuracy difference\ndistribution, on stim')
+
+    # ax[3,0].set_ylabel('same$-$cross\naccuracy difference\ndistribution, on stim 0-0.5 sec')
+
+
+
+
+
+    # ax[1,2].set_ylabel('visual$-$audio\naccuracy difference\nover time')
+
+    # ax[2,2].set_ylabel('visual$-$audio\naccuracy difference\ndistribution, on stim')
+
+    # ax[3,2].set_ylabel('visual$-$audio\naccuracy difference\ndistribution, on stim 0-0.5 sec')
+
+
+
+
+
+
+
+
+
+
+    fig.suptitle('visual decoding comparison across contexts')
+    fig.tight_layout()
+
+
+    save = 0 or globaldoplot
+    if save:
+        fig.savefig(resultpath+'acrosscontextcomparison,visual,audio-tribe'+ext)
+
+    return
+
+
+
+
+
 
 
 
@@ -3420,6 +3989,352 @@ def aggregatemice_calculatedecayconstant(datanames):
 
 
 
+
+def aggregatemice_lowdimensionnullspacecontext(datanames):
+
+
+    doplot = 1 or globaldoplot
+
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanames_lowdimcontext = ['DT014','DT022','MT020_2']
+
+
+    # indices_lowdimcontext = [  datanames.index(lowdim) for lowdim in datanames_lowdimcontext   ]
+
+
+
+    # load full- and reduced-space crosstime decoder accuracies
+
+    crossdecoders_all = []
+
+    for n,dn in enumerate(datanames):     # change to datanames!!!
+        
+        crossdecoders = []
+        
+        exptyp = ',allcontexts'
+        crossdecoder_matrix_allaspects = pickle.load(open(cacheprefix+'continuous/crossdecodematrix%s,contextcond,cv-%s-%dms_%s.pck'%(exptyp, continuous_method,T['dt'],dn),'rb'))
+        crossdecoders.append(crossdecoder_matrix_allaspects[2])           # 2 is context
+
+
+        if dn in datanames_lowdimcontext:
+            for n_nsrd in [1,3]:  # nullspace recursion depth       1, 3, 10
+                exptyp = ',recurrentnullspacecontext%d'%n_nsrd
+                crossdecoder_matrix_allaspects = pickle.load(open(cacheprefix+'continuous/crossdecodematrix%s,contextcond,cv-%s-%dms_%s.pck'%(exptyp, continuous_method,T['dt'],dn),'rb'))
+                crossdecoders.append(crossdecoder_matrix_allaspects[0])        # this question has only a single reply - unlike ',allcontexts' above
+
+        
+        crossdecoders_all.append(crossdecoders)
+
+
+    print(len(crossdecoders_all), crossdecoders_all[0][0].shape)
+
+    # baseline random decoder labels        
+    n_resample = 10
+    chances = pickle.load(open(cacheprefix+'subspaces/chances,allmice,resampled-full,r%d-%s.pck'%(n_resample,continuous_method),'rb'))
+
+
+    if doplot:
+
+
+
+
+
+
+
+
+        if 0: # show explicitly side bby side the non-blocked animals with original, subtracting 1, and 3 dims of context DVs.
+            fig,ax = plt.subplots(3,len(datanames_lowdimcontext),figsize=(len(datanames_lowdimcontext)*8,3*8))
+
+
+            for nx,dn in enumerate(datanames_lowdimcontext):
+                for sx,s in enumerate([0,1,3]):
+                    axs = ax[sx,nx]
+
+                    cmap = figs.getcorrcolormap('correlation')
+                    cf = axs.pcolormesh(crossdecoders_all[nx][sx][:,:,0],vmin=0,vmax=1,cmap=cmap)
+                    
+                    axs.set_aspect('equal')
+                    
+                    ticks=[150,450]
+                    ticklabels=['0 ms','3000 ms']
+                    axs.set_xticks(ticks)
+                    axs.set_xticklabels(ticklabels)                
+                    axs.set_yticks(ticks)
+                    axs.set_yticklabels(ticklabels,rotation=90)                
+                    
+                    if sx==0: axs.set_title(dn)
+                    
+                    axs.set_xlabel('test timecourse')
+
+                    axs.set_ylabel(['','%d dims subtracted\n'%s][nx==0]+'train timecourse')
+
+                    # plt.subplots_adjust(bottom=0.1, right=0.8, top=0.9)
+                    fig.colorbar(cf,ax=axs,ticks=np.arange(0,1.1,0.25))
+
+
+
+
+
+
+
+
+
+        if 1:     # publication story
+            # A example animal 2 non-blocked, B context nullspace recurrent timecourse, example animal 2, C example animal 2, with the first context DV subtracted, 
+            # D context nullspace recurrent deletion for all animals, mean acc remaining, E 1st subspace drop in context vs. drop between on and pre original
+
+            fig,ax = plt.subplots(2,3,figsize=(3*8,2*8))
+
+
+            panels = ['I','K']
+            dn = 'MT020_2'
+            n = datanames.index(dn)
+            ssids = [0,1]        # subspace code
+            
+
+            for i,si in enumerate(ssids):
+
+                mapres = np.arange(0.5,1.,0.01)
+                cmap = plt.cm.PuRd(mapres)
+                cmap[mapres<chances[dn],:] = np.array([0.94,0.94,0.94,1.0])
+                cmap = clrs.ListedColormap(cmap, name='PuRdE', N=cmap.shape[0])
+
+                axs = ax[0,2*i]
+                
+                x = crossdecoders_all[n][si][:,:,0]
+                cf = axs.pcolormesh(x,vmin=0.5,vmax=1,cmap=cmap)
+                
+                axs.set_aspect('equal')
+                
+                ticks=[150,450]
+                ticklabels=['0 ms','3000 ms']
+                axs.set_xticks(ticks)
+                axs.set_xticklabels(ticklabels)                
+                axs.set_yticks(ticks)
+                axs.set_yticklabels(ticklabels,rotation=90)                
+                
+                axs.set_title('%s accuracy'%['full space','nullspace of first context'][i],fontsize='small')
+                
+                axs.set_xlabel('test timecourse')
+                axs.set_ylabel('train timecourse')
+            
+                # plt.subplots_adjust(bottom=0.1, right=0.8, top=0.9)
+                fig.colorbar(cf,ax=axs,ticks=np.arange(0.5,1.1,0.25))
+            
+            
+                figs.labelaxis(axs,panels[i])
+
+
+            
+
+
+
+            panel = 'J'
+            axs = ax[0,1]
+            comparison = 'context'
+            colors = ['darkorange','darkred']
+
+            acrossdecoder_nullspaces,ranks = pickle.load(open(cacheprefix+'subspaces/nullspace,recurrent,decodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+            # times = acrossdecoder_nullspace[1].analogsignals[0].times
+
+            n_neurons = len(ranks)+1
+            for px in range(n_neurons):
+                if px==0:
+                    acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
+                else:
+                    acrossdecoder = acrossdecoder_nullspaces[px-1]
+                    colors[1]= np.array([1,0,0.5])*(px/n_neurons/2)+np.array([0.25,0,0.12])
+                
+                a = neph.smooth(acrossdecoder[1][:,0],mode='same')
+                axs.plot(acrossdecoder[1].times,a,color=colors[px>0],lw=[2,1][px>0])
+
+            figs.setxt(axs)
+            axs.set_xlim(-1300,4200)
+            axs.set_ylim(0.45,1.05)
+            figs.plottoaxis_stimulusoverlay(axs,T)
+            figs.plottoaxis_chancelevel(axs,chances[dn])
+
+            axs.set_title('recurrent context nullspaces',fontsize='small')
+            axs.set_ylabel('context accuracy')
+
+            axs.spines['right'].set_visible(False)
+            axs.spines['top'].set_visible(False)
+            figs.labelaxis(axs,panel)
+
+
+
+
+
+
+
+            panel = 'L'
+            axs = ax[1,0]
+            comparison = 'context'
+            colors = ['darkorange','darkred']
+
+            for n,dn in enumerate(datanames):
+
+                acrossdecoder_nullspaces,ranks = pickle.load(open(cacheprefix+'subspaces/nullspace,recurrent,decodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+                # times = acrossdecoder_nullspace[1].analogsignals[0].times
+
+                n_neurons = len(ranks)+1
+                x = []
+                for px in range(n_neurons):
+                    if px==0:
+                        acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
+                    else:
+                        acrossdecoder = acrossdecoder_nullspaces[px-1]
+                        colors[1]= np.array([1,0,0.5])*(px/n_neurons/2)+np.array([0.25,0,0.12])
+                    
+                    x.append( acrossdecoder[1][:,0].mean(axis=0) )
+
+                    axs.plot(px,x[-1],'o',markerfacecolor=colors[px>0], markeredgecolor=colors[px>0],markersize=3)
+                
+                axs.plot(np.arange(n_neurons),x,color='mediumvioletred',alpha=0.3,lw=1)
+            
+
+            axs.set_ylim(0.45,0.8)
+            axs.set_yticks([0.5,0.8])
+            m_c = np.array(list(chances.values())).mean()
+            e_c = np.array(list(chances.values())).std()/np.sqrt(len(datanames))
+            figs.plottoaxis_chancelevel(axs,m_c+e_c)
+
+            axs.set_xlabel('subtracted dimensions')
+            axs.set_ylabel('context accuracy')
+
+
+            axs.spines['right'].set_visible(False)
+            axs.spines['top'].set_visible(False)
+            figs.labelaxis(axs,panel)
+
+
+
+
+
+
+
+
+
+
+            # drop in mean first context decoder accuracy   vs.   drop between mean pre and on accuracy
+            panel = 'M'
+            axs = ax[1,1]
+            comparison = 'context'
+            color = 'darkmagenta'
+
+
+
+            x = []
+            y = []
+            neurons = []
+            for n,dn in enumerate(datanames):
+
+                # get the mean first context accuracy drop:
+                
+                acrossdecoder = pickle.load(open(cacheprefix+'subspaces/responsedecodes,subspaces-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
+                acrossdecoder_nullspaces,ranks = pickle.load(open(cacheprefix+'subspaces/nullspace,recurrent,decodes-%s_%s_%s.pck'%(dn,comparison,continuous_method),'rb'))
+                # times = acrossdecoder_nullspace[1].analogsignals[0].times
+
+                dx = acrossdecoder[1].magnitude[:,0].mean(axis=0) - acrossdecoder_nullspaces[0][1].magnitude[:,0].mean(axis=0)
+
+                x.append(dx)
+
+
+                # get average pre vs on accuracy drop
+                skipoffdiag = 10
+                C = crossdecoders_all[n][0][:,:,0]
+                c_pre = C[:T['stimstart_idx'],:T['stimstart_idx']]
+                c_on = C[T['stimstart_idx']:T['stimend_idx'],T['stimstart_idx']:T['stimend_idx']]
+                for c in (c_pre,c_on):
+                    sz = c.shape[0]
+                    for imax in range(skipoffdiag):
+                        for i in range(sz-imax):
+                            c[i+imax,i] = np.nan
+                            c[i,i+imax] = np.nan
+                c_cross = np.hstack( [ C[T['stimstart_idx']:T['stimend_idx'],:T['stimstart_idx']].ravel(), \
+                                       C[:T['stimstart_idx'], T['stimstart_idx']:T['stimend_idx'] ].ravel() ] )
+
+                
+                dy = np.nanmean(c_pre)/2 + np.nanmean(c_on)/2  - np.mean(c_cross)
+                
+                y.append( dy )
+            
+                n_neurons = len(ranks)+1
+                neurons.append(n_neurons)
+
+                if n==0: print('name, neurons, nullspace 1, offdiag   > dx, dy ')
+                print(dn, n_neurons, acrossdecoder_nullspaces[0][1].magnitude[:,0].mean(axis=0), np.nanmean(c_pre)/2 + np.nanmean(c_on)/2, chances[dn], '  >', dx, dy)
+            
+
+            axs.plot(x,y,'o',markerfacecolor=color, markeredgecolor=color)
+            
+            for nx,n in enumerate(neurons):
+                axs.text(x[nx]-0.001,y[nx]+0.001,'%s %d'%(datanames[nx],n),fontsize=9)
+
+
+            removes = [7,2]
+            for k in removes:
+                x.pop(k)
+                y.pop(k)
+                datanames.pop(k)
+            print(datanames)
+
+            x = np.array(x)
+            y = np.array(y)
+            l = sp.stats.linregress(x,y)
+            print(k,l)
+            line = np.linspace(start=x.min()*0.8,stop=x.max()*1.2,num=2)
+            axs.plot(line,l[0]*line+l[1],color='grey',linewidth=0.5)
+            
+
+
+
+
+            axs.set_xlabel('accuracy loss in first context nullspace')
+            axs.set_ylabel('accuracy difference\nacross preon    -   within preon')
+
+
+            axs.spines['right'].set_visible(False)
+            axs.spines['top'].set_visible(False)
+            figs.labelaxis(axs,panel)
+
+
+
+
+
+        ax[1,2].remove()
+
+
+        fig.tight_layout()
+
+
+
+
+        save = 1 or globalsave
+        if save:
+            fig.savefig('../../../publish/journals/journal2020spring/figures/'+'Fig4_addition_lowdimcontextpersistent'+ext)
+
+
+
+
+    return
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def aggregatemice_attendignore(datanames, examine='attendignore'):
     # compare attended and ignored condition stimulus representations
 
@@ -4600,12 +5515,216 @@ def aggregatemice_contextpreonsubpop(datanames):
 
 
 
-def aggregatemice_chancelevel(datanames):
+def aggregatemice_behavioursymmetrycontext(datanames):
+    # show symmetrically and assymetrically behaving mouse
+    # cross decode between parts
+
+    n_mice = len(datanames)
+    accuracylist = []
+    accuracyalllist = []
+    for dn in datanames:
+        # accuracy (times,train-test-crosstrain-crosstest,stats,symmetrytrain)
+        accuracies,coefs,accuracyall,coefsall = pickle.load(open(cacheprefix+'symmetry/neural,context-equalized-symmetric,antisymmetric,cross-decoder-loo,boots,timecourse_%s.pck'%(dn), 'rb'))
+        accuracylist.append(accuracies)
+        accuracyalllist.append(accuracyall)
+    accuracylist = np.array(accuracylist) # (mice,bootstrap,times,train-test-crosstrain-crosstest,stats,symmetrytrain)
+    accuracyalllist = np.array(accuracyalllist) # (mice,bootstrap,times,train-test,stats)
+    n_bootstrap = accuracylist.shape[1]
+
+
+    n_times = accuracyalllist.shape[1]
+
+    mask_on = np.zeros(n_times, dtype=np.bool8)
+    mask_on[T['stimstart_idx']:T['stimend_idx']] = True
+    mask_off = np.ones(n_times, dtype=np.bool8)
+    mask_off[T['stimstart_idx']:T['stimend_idx']] = False
+
+
+
+
+
+    # load baseline chance levels for subsampled number of trials ('reduced'), matching to minimum symmetry number of trials
+    n_resample = 10
+    chances = pickle.load(open(cacheprefix+'subspaces/chances,allmice,resampled-full,r%d-%s.pck'%(n_resample,continuous_method),'rb'))
+    chances_reduced = pickle.load(open(cacheprefix+'subspaces/chances,allmice,resampled-full,r%d,reduced-%s.pck'%(n_resample,continuous_method),'rb'))
+    
+
+
+
+
+
+
+    # figure
+    fig,ax = plt.subplots(3,2, figsize=(2*10,3*8) )
+
+
+
+
+    for mx,mask in enumerate((mask_off, mask_on)):
+        n_subtrialtimes = np.sum(mask)
+
+
+        # plot all trials
+        axs = ax[0,mx]
+        
+
+        m = accuracyalllist[:,mask,1,0].mean(axis=1)
+        e = np.sqrt( (accuracyalllist[:,mask,1,0].std(axis=1)/np.sqrt(n_subtrialtimes))**2 + accuracyalllist[:,mask,1,2].mean(axis=1)**2 )
+
+        axs.bar(x=np.arange(n_mice)*6-2, height=m, yerr=e, color='grey', label='all', alpha=0.8)
+
+
+        symmetrycolors = [['rebeccapurple','gold'],['darkorange','fuchsia']]
+
+        xranges = np.arange(n_mice)*6-2
+        for n in range(n_mice):
+            chs = chances[datanames[n]]
+            figs.plottoaxis_chancelevel( axs, chs, xs=[ xranges[n]-0.5, xranges[n]+0.5] )
+        
+        
+        
+        # plot crossdecoding
+        symmetrylabels = [['symmetric->symmetric','symmetric->asymmetric'],['antisymmetric->asymmetric','asymmetric->symmetric']]
+        symmetrycolors = [['rebeccapurple','gold'],['darkorange','fuchsia']]
+        for rx in range(2):             # train subset
+            for sx in range(2):         # crosstest subset (same or cross)
+                
+                color = symmetrycolors[rx][sx]
+
+
+                # (n_timestamps,train/test,stats,task,symmetry)
+                m = accuracylist[:,:,mask,1+sx*2,0,rx].mean(axis=(1,2))
+
+                e = np.sqrt( (accuracylist[:,:,mask,1+sx*2,0,rx].std(axis=(1,2))/np.sqrt(n_bootstrap*n_subtrialtimes))**2 + \
+                              accuracylist[:,:,mask,1+sx*2,2,rx].mean(axis=(1,2))**2 )
+                print(m.shape,e.shape)
+                axs.bar(x=np.arange(n_mice)*6-2+1+rx*2+sx, height=m, yerr=e, color=color, label=symmetrylabels[rx][sx])
+
+
+            xranges = np.arange(n_mice)*6
+            for n in range(n_mice):
+                chs = chances_reduced[datanames[n]]
+                figs.plottoaxis_chancelevel( axs, chs, xs=[ xranges[n]-1, xranges[n]+2.5] )
+
+
+
+        axs.set_xticks(np.arange(n_mice)*6)
+        axs.set_xticklabels(datanames, rotation=60)
+
+        axs.set_ylim(0.45,1.05)
+        figs.plottoaxis_chancelevel(axs,0.5)
+        axs.legend(frameon=False)
+
+        axs.set_ylabel('time averaged accuracy')
+        axs.set_title(['off stimulus','on stimulus'][mx])
+
+
+
+
+
+        # compare same-test between sym and asym
+        axs = ax[1,mx]
+
+        sx = 0
+
+        m_sym = accuracylist[:,:,mask,1,0,0].mean(axis=1).T
+        m_asym = accuracylist[:,:,mask,1,0,1].mean(axis=1).T
+        e_sym = accuracylist[:,:,mask,1,2,0].mean(axis=1).T
+        e_asym = accuracylist[:,:,mask,1,2,1].mean(axis=1).T
+
+        d = m_sym-m_asym#-(e_sym+e_asym)
+
+        P = axs.violinplot(d,  quantiles=np.tile([0.025, 0.15866, 0.84134, 0.975 ],(n_mice,1)).T,\
+                           showextrema=False, showmedians=True)         # color='mediumturquoise',
+        # P = axs.boxplot(d,  whis=[ 2.5, 97.5 ], notch=True, bootstrap=1000)
+        axs.set_xticks(np.arange(n_mice)+1)
+        axs.set_xticklabels(datanames, rotation=60)
+        figs.plottoaxis_chancelevel(axs,0)
+        
+        # for n in range(n_mice):
+        #     axs.plot([n+0.5,n+1.5],)
+
+        axs.set_ylabel('accuracy difference\nsymmetric-asymmetric')
+
+
+
+
+
+
+
+        # random chance controlled time comparison (3rd and 4th rows)
+
+
+        axs = ax[2,mx]
+        sx = 0
+        
+        
+        # random criteria sym only:
+        timedmasks = [ np.logical_and(mask, accuracylist[n,:,:,1,0,0].mean(axis=0)>chances_reduced[datanames[n]] ) for n in range(n_mice) ]
+        # random criteria sym and asym as well:
+        # timedmasks = [ np.logical_and( mask, np.logical_and(accuracylist[n,:,:,1,0,0].mean(axis=0)>chances_reduced[datanames[n]],\
+        #                                                    accuracylist[n,:,:,1,0,1].mean(axis=0)>chances_reduced[datanames[n]]) ) \
+        #                  for n in range(n_mice) ]
+
+        print([ sum(timedmask) for timedmask in timedmasks])
+
+
+        m_sym = [ accuracylist[n,:,timedmasks[n],1,0,0].mean(axis=1) for n in range(n_mice)]
+        m_asym = [ accuracylist[n,:,timedmasks[n],1,0,1].mean(axis=1) for n in range(n_mice)]
+        e_sym = [ accuracylist[n,:,timedmasks[n],1,2,0].mean(axis=1)  for n in range(n_mice)]
+        e_asym = [ accuracylist[n,:,timedmasks[n],1,2,1].mean(axis=1) for n in range(n_mice)]
+
+        d = [ m_sym[n]-m_asym[n]    for n in range(n_mice) ]        #-(e_sym+e_asym)
+
+        # P = axs.violinplot(d,  quantiles=np.tile([0.025, 0.15866, 0.84134, 0.975 ],(n_mice,1)).T,\
+        #                    showextrema=False, showmedians=True)         # color='mediumturquoise',
+        P = axs.boxplot(d,  whis=[ 2.5, 97.5 ], notch=True, bootstrap=1000)
+        axs.set_xticks(np.arange(n_mice)+1)
+        axs.set_xticklabels(datanames, rotation=60)
+        figs.plottoaxis_chancelevel(axs,0)
+
+
+
+        axs.set_ylabel('above random accuracy difference\nsymmetric-asymmetric')
+
+
+
+
+    fig.tight_layout()
+    
+    save = 0 or globalsave
+    if save:
+        fig.savefig(resultpath+'behaviour,symmetry,context,invariant'+ext)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def aggregatemice_chancelevel(datanames, reducedtrials=False):
     # calculate randomized chance level significance boundary around 0.5 accuracies
     
     n_mice = len(datanames)
     n_resample = 10
     taskaspects = ['visual','audio','context','choice']
+    if reducedtrials: reducedlabel = ',reduced'
+    else: reducedlabel = ''
 
     chances = dict()
     
@@ -4613,7 +5732,7 @@ def aggregatemice_chancelevel(datanames):
 
         acrossdecoders = [] # get together all random runs
         for cx,comparison in enumerate(taskaspects):
-            acrossdecoders_taskaspect = pickle.load(open(cacheprefix+'subspaces/shuffledecoders,resampled-%s-full,r%d-%s_%s.pck'%(comparison,n_resample,continuous_method,dn),'rb'))
+            acrossdecoders_taskaspect = pickle.load(open(cacheprefix+'subspaces/shuffledecoders,resampled-%s-full,r%d%s-%s_%s.pck'%(comparison,n_resample,reducedlabel,continuous_method,dn),'rb'))
             acrossdecoders.extend(acrossdecoders_taskaspect)
 
 
@@ -4631,7 +5750,54 @@ def aggregatemice_chancelevel(datanames):
 
     print(chances)
 
-    fn = 'subspaces/chances,allmice,resampled-full,r%d-%s.pck'%(n_resample,continuous_method)
+    fn = 'subspaces/chances,allmice,resampled-full,r%d%s-%s.pck'%(n_resample,reducedlabel,continuous_method)
     print('saving to ', fn)
     pickle.dump(chances, open(cacheprefix+fn,'wb'))
-    
+
+
+
+
+
+
+
+
+
+def aggregatemice_numberofhighlowperformancetrials(datanames):
+    from physiology import get_mask_cleverness
+    n_mice = len(datanames)
+    print('Calculating number of high and low performance trials.')
+    trialnumbers = np.zeros((n_mice,4))
+    for n,dn in enumerate(datanames):
+        print(n,dn)
+        # load trials data
+        g = preprocess.loadexperimentdata(dn, full=False, multimodalonly=True)
+        g['block']+=1
+        g['success'] = g['punish']==False
+        blv,bla = preprocess.getorderattended(dn)
+
+
+        # apply behaviour masks, to get a "clever"=True mask for all trials
+        ma = 20
+        ma_th = 0.5
+        action = ['go','nogo']
+        congruency = ['congruent','incongruent']
+        mask_clevers_list = [[],[]] # holds context dependent list
+        mask_clevers = []           # holds indexed by original trial order
+        for c in congruency:
+            for a in action:
+                mask_clever_contexts = get_mask_cleverness(dn, ma=ma, ma_threshold=ma_th, visualfirst=False, go=a, congruency=c)
+                for cx,mask_clever_context in enumerate(mask_clever_contexts):
+                    mask_clevers_list[cx].append(mask_clever_context)
+                mask_clever = np.hstack( get_mask_cleverness(dn, ma=ma, ma_threshold=ma_th, visualfirst=False, go=a, congruency=c) )
+                mask_clevers.append(mask_clever)
+        
+        mask_clevers_list = [ np.vstack(mask_clevers_list[cx]).T for cx in [0,1]]
+        mask_clevers = np.vstack(mask_clevers).T
+
+
+        mask_contextuals = [ np.prod(mask_clevers_list[cx],axis=1) for cx in [0,1] ]
+        # display the number of trials that has above threshold movingaverage for all 4 combinations of congruenct and action
+        trialslabel = '1st(%s):%d/%d, 2nd(%s):%d/%d'%(['V','A'][blv[1]==4],np.sum(mask_contextuals[0]), len(mask_contextuals[0]), ['A','V'][blv[1]==4], np.sum(mask_contextuals[1]), len(mask_contextuals[1]))
+        trialnumbers[n,:] = np.array([np.sum(mask_contextuals[0]), len(mask_contextuals[0])-np.sum(mask_contextuals[0]), np.sum(mask_contextuals[1]), len(mask_contextuals[1])-np.sum(mask_contextuals[1]) ])
+
+    pickle.dump(trialnumbers, open(cacheprefix+'behaviour/numtrials-n%d-highlowperformance'%n_mice,'wb'))

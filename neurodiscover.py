@@ -5,8 +5,13 @@ Created on Thu Mar 21 15:00:23 2019
 @author: mahajnal
 """
 
+import multiprocessing
+from os import cpu_count
+n_cpu = cpu_count()
+
 import numpy as np
 import scipy as sp
+from scipy.stats import ortho_group
 import matplotlib.pyplot as plt
 
 import quantities as pq
@@ -21,6 +26,7 @@ import sklearn.feature_selection as skfs
 import sklearn.neural_network as sknn
 import sklearn.gaussian_process as gp
 import sklearn.mixture as gm
+import sklearn
 
 import tensorly as tl
 from tensorly.decomposition import tucker, parafac, non_negative_tucker
@@ -225,6 +231,8 @@ def dprime_normal(x1,x2):
 
 
 
+
+
 # data structure discovery
     
 
@@ -248,6 +256,25 @@ def pca(X,n_components=2,ret='transformed'):
 
 
 
+def fa(X,n_components=2):
+    # X must be n_samples x n_features
+
+    FactorAnalysisInstance = skdc.FactorAnalysis(n_components=n_components)
+    X_transformed = FactorAnalysisInstance.fit_transform(X)
+    
+    ll = FactorAnalysisInstance.loglike_
+    m = FactorAnalysisInstance.mean_
+    e = FactorAnalysisInstance.noise_variance_
+    transformer = FactorAnalysisInstance.components_
+
+    return X_transformed,transformer,ll,m,e,
+
+
+
+
+
+
+
 
 
 def bootstrapequalizesmallest(labels,labellist,indices_f,N_cat):
@@ -265,6 +292,15 @@ def bootstrapequalizesmallest(labels,labellist,indices_f,N_cat):
 
 
 
+
+# random orthomatrices
+def get_randomorthocumulativeprojections(d,n):
+    # return a list of n orthogonal matrices with dimension d
+    Ms = []
+    for i in range(n):
+        M = ortho_group.rvs(dim=d)
+        Ms.append(M)
+    return Ms
 
 
 
@@ -349,10 +385,12 @@ def pointwiseclassifier(X,y, lastclassone=1, cv=False, rr=10, metric='roc', maxp
                 angle_normaltosvd.append(innerproductangle( V[comp,:], decisionnormal))
             a_ns.append(angle_normaltosvd)
             
-
+        n_folds = rr
         
     elif cv==True:
-        rr = np.min(  ((y==0).sum(), (y==1).sum(), rr) )
+        if type(rr)==int:
+            rr = np.min(  ((y==0).sum(), (y==1).sum(), rr) )
+        
 #        print((y==0).sum(),(y==1).sum(),rr)
 
 
@@ -362,8 +400,9 @@ def pointwiseclassifier(X,y, lastclassone=1, cv=False, rr=10, metric='roc', maxp
                                     X, y, cv=rr,return_train_score=True, return_estimator=True)
         roc_tr = cv_results['train_score']
         roc_te = cv_results['test_score']
-
-        for r in range(rr):
+        
+        n_folds = len(cv_results['estimator'])
+        for r in range(n_folds):
             c_db.append(cv_results['estimator'][r].coef_)
 
             decisionnormal = (cv_results['estimator'][r].coef_/  \
@@ -377,16 +416,16 @@ def pointwiseclassifier(X,y, lastclassone=1, cv=False, rr=10, metric='roc', maxp
 
 
     roc_dist = np.array([roc_tr, roc_te])        # te,tr    x     1,2,3,4... reruns
-    roc = np.stack(   (np.mean(roc_dist,axis=1),2*np.std(roc_dist,axis=1),2*np.std(roc_dist,axis=1)/np.sqrt(rr)), axis=1)
+    roc = np.stack(   (np.mean(roc_dist,axis=1),2*np.std(roc_dist,axis=1),2*np.std(roc_dist,axis=1)/np.sqrt(n_folds)), axis=1)
 
-    if rr==1: return roc,dec                    # return for subspaces_examples with rr==1
+    if n_folds==1: return roc,dec                    # return for subspaces_examples with n_folds==1
 
 
     a_ns = np.array(a_ns).T                 # pca 1, pca2...     x  1,2,3,4.... reruns
-    a = np.stack(   (np.mean(a_ns,axis=1),2*np.std(a_ns,axis=1),2*np.std(a_ns,axis=1)/np.sqrt(rr)),    axis=1)
+    a = np.stack(   (np.mean(a_ns,axis=1),2*np.std(a_ns,axis=1),2*np.std(a_ns,axis=1)/np.sqrt(n_folds)),    axis=1)
     
     c_db = np.array(c_db).squeeze().swapaxes(0,1)      #   1     x     1,2,3,4... reruns      x      dimensions
-    coeffs = np.stack(   [np.mean(c_db,axis=1),2*np.std(c_db,axis=1),2*np.std(c_db,axis=1)/np.sqrt(rr)],    axis=1)
+    coeffs = np.stack(   [np.mean(c_db,axis=1),2*np.std(c_db,axis=1),2*np.std(c_db,axis=1)/np.sqrt(n_folds)],    axis=1)
     
     # now combine train, test and pc angles
     pack = np.vstack((roc,a,coeffs))
@@ -415,6 +454,27 @@ def pointwiseclassifierreturnestimator(X,y,n_cvfolds=10,cvtype=skms.StratifiedKF
 
 
     return roc_tr, roc_te, proba_te, cv_results['estimator']
+
+
+
+
+
+def pointwiseclassifiercrosstest(X,y,Xcross,ycross,n_cvfolds=5,cvtype=skms.StratifiedKFold,solver='liblinear'):
+    cv_results = skms.cross_validate(sklm.LogisticRegression(solver=solver,penalty='l2'), \
+                                X, y, cv=n_cvfolds,return_train_score=True, return_estimator=True)
+    roc_tr = [ cv_results['train_score'].mean(), cv_results['train_score'].std()/np.sqrt(n_cvfolds) ]
+    roc_te = [ cv_results['test_score'].mean(), cv_results['test_score'].std()/np.sqrt(n_cvfolds) ]
+
+    # collect cross test predictions
+    roc_te_cross = np.zeros(len(ycross))
+    S = skms.StratifiedKFold(n_splits=n_cvfolds)
+    for ix, (i_tr, i_te) in enumerate(S.split(Xcross,ycross)):
+        roc_te_cross[i_te,:] = cv_results['estimator'][ix].predict(Xcross[i_te,:])
+
+    return roc_tr, roc_te, roc_te_cross, cv_results['estimator']
+
+
+
 
 
 
@@ -1190,6 +1250,7 @@ def get_responsedifference(across_responses):
 
 
 def get_responsedecoding(across_responses,width=50*pq.ms,cv=False,rr=10,metric='roc',solver='liblinear',shuffle=None):
+    if rr=='loo': rr = skms.LeaveOneOut()
     responses = np.concatenate(across_responses,axis=0)
     times = across_responses[0][0].times
     print('time',times[1]-times[0])
@@ -1265,7 +1326,7 @@ def get_responsedecoding(across_responses,width=50*pq.ms,cv=False,rr=10,metric='
 
 
 def get_pointwisedecoderprobability(across_responses,width=50*pq.ms,rr=10,cv=skms.KFold):
-    # returns timecourse of class CV-d prediction probabilities, and overall accuracz timecourse
+    # returns timecourse of class CV-d prediction probabilities, and overall accuracy timecourse
     responses = np.concatenate(across_responses,axis=0)
     times = across_responses[0][0].times
     print('time',times[1]-times[0])
@@ -1286,8 +1347,8 @@ def get_pointwisedecoderprobability(across_responses,width=50*pq.ms,rr=10,cv=skm
         #     proba.append( np.zeros((len(targets),2)) )
 
     aux = np.array(np.swapaxes(proba,0,1))    # switch axes, so that the first dim becomes class, second time; third stays as proba class 1 and 2
-    # probasignals is a (trials,times,classes); here we create only the probability of the first class
-    probasignals = neo.AnalogSignal(  aux[:,:,0],\
+    # probasignals is a (trials,times,classes); here we create only the probability of the first class, which has index 1, strange, eh?
+    probasignals = neo.AnalogSignal(  aux[:,:,1],\
            name='probability'+across_responses[0][0].name, t_start=across_responses[0][0].t_start,\
            sampling_period=across_responses[0][0].sampling_period, units=across_responses[0][0].units   )
 
@@ -1926,6 +1987,154 @@ def gaussianprocessregression(X,y,wx,rr=3):
 
 
 
+def get_linearregression_singleprocess(X,Y,indices,method=sklm.Ridge(),cv_method=skms.StratifiedKFold(5)):
+    # elementary per timepoint decoder
+    n_targets = Y.shape[2]
+    # a = np.frombuffer(sharedvars{'v'}).reshape(sharedvars{'sh_acc'})
+    a = np.zeros((len(indices), n_targets, 2,3))
+    c = np.zeros((len(indices), n_targets, X.shape[2], 3))
+    for tg in range(n_targets):
+        for kx,k in enumerate(indices):
+            x = X[:,k,:]
+            y = Y[:,k,tg]
+            cv = cv_method.get_n_splits(x,y)
+            cv_results = skms.cross_validate(method, \
+                                    x, y, cv=cv,return_train_score=True, return_estimator=True)
+            sc_tr = cv_results['train_score']
+            sc_te = cv_results['test_score']
+            a[kx,tg,:,:] = np.array( \
+                [ [ sc_tr.mean(), sc_tr.std(), sc_tr.std()/np.sqrt(cv) ], \
+                  [ sc_te.mean(), sc_te.std(), sc_te.std()/np.sqrt(cv) ] ] )
+            cs = np.array([ cv_results['estimator'][r].coef_ for r in range(cv) ]).squeeze()
+            c[kx,tg,:,:] = np.array([cs.mean(axis=0), cs.std(axis=0), cs.std(axis=0)/np.sqrt(cv)]).T
+    return indices, a, c
+
+
+def get_crosslinearregression_singleprocess(X,Y,Xcross,Ycross,indices,method=sklm.Ridge(),cv_method=skms.StratifiedKFold(5)):
+    # elementary per timepoint decoder
+    # compares two subsets of observations, training in one subset, and testing in another, both CV folds
+    n_targets = Y.shape[2]
+    # a = np.frombuffer(sharedvars{'v'}).reshape(sharedvars{'sh_acc'})
+    a = np.zeros((len(indices), n_targets, 2+2,3))         # need +2 for cross tests
+    c = np.zeros((len(indices), n_targets, X.shape[2], 3))
+    for tg in range(n_targets):
+        for kx,k in enumerate(indices):
+            x = X[:,k,:]
+            y = Y[:,k,tg]
+            cv = cv_method.get_n_splits(x,y)#,groups=y) # this will be the same in both cross-groups as equalized
+            cv_results = skms.cross_validate(method, \
+                                    x, y, cv=cv_method,return_train_score=True, return_estimator=True)
+            # print(cv_method, 'nsplits', cv, 'y',sum(y),sum(y==0), sum(Ycross[:,k,tg]), sum(Ycross[:,k,tg]==0), '#estim',len(cv_results['estimator']))
+            sc_tr = cv_results['train_score']
+            sc_te = cv_results['test_score']
+            sc_tr_cross = np.zeros(Ycross.shape[0])
+            sc_te_cross = np.zeros(Ycross.shape[0])
+            S = cv_method
+            for ix, (i_tr, i_te) in enumerate(S.split(Xcross[:,k,:],Ycross[:,k,tg])):      #,groups=Ycross[:,k,tg])):
+                sc_tr_cross[i_tr] = cv_results['estimator'][ix].score(Xcross[:,k,:][i_tr,:], Ycross[:,k,tg][i_tr])
+                sc_te_cross[i_te] = cv_results['estimator'][ix].score(Xcross[:,k,:][i_te,:], Ycross[:,k,tg][i_te])
+
+
+            a[kx,tg,:,:] = np.array( \
+                [ [ sc_tr.mean(), sc_tr.std(), sc_tr.std()/np.sqrt(cv) ], \
+                  [ sc_te.mean(), sc_te.std(), sc_te.std()/np.sqrt(cv) ], \
+                  [ sc_tr_cross.mean(), sc_tr_cross.std(), sc_tr_cross.std()/np.sqrt(cv) ], \
+                  [ sc_te_cross.mean(), sc_te_cross.std(), sc_te_cross.std()/np.sqrt(cv) ] ] )
+            
+            cs = np.array([ cv_results['estimator'][r].coef_ for r in range(cv) ]).squeeze()
+            c[kx,tg,:,:] = np.array([cs.mean(axis=0), cs.std(axis=0), cs.std(axis=0)/np.sqrt(cv)]).T
+    return indices, a, c
+
+
+def get_linearregressionmultivariate_singleprocess(X,Y,indices,method=sklm.Ridge(),cv_method=skms.StratifiedKFold(5)):
+    # elementary per timepoint decoder
+    n_targets = Y.shape[2]
+
+    # a = np.frombuffer(sharedvars{'v'}).reshape(sharedvars{'sh_acc'})
+    a = np.zeros((len(indices), 1, 2,3))
+    c = np.zeros((len(indices), n_targets, X.shape[2], 3))
+    for kx,k in enumerate(indices):
+        x = X[:,k,:]
+        y = Y[:,k,:]
+        cv = cv_method.get_n_splits(x,y)
+        cv_results = skms.cross_validate(method, \
+                                x, y, cv=cv_method,return_train_score=True, return_estimator=True)
+        sc_tr = cv_results['train_score']
+        sc_te = cv_results['test_score']
+        a[kx,0,:,:] = np.array( \
+            [ [ sc_tr.mean(), sc_tr.std(), sc_tr.std()/np.sqrt(cv) ], \
+                [ sc_te.mean(), sc_te.std(), sc_te.std()/np.sqrt(cv) ] ] )
+        cs = np.array([ cv_results['estimator'][r].coef_ for r in range(cv) ])
+        c[kx,:,:,:] = np.stack([cs.mean(axis=0), cs.std(axis=0), cs.std(axis=0)/np.sqrt(cv)],axis=2)
+    return indices, a, c
+
+
+def get_linearregressionmultivariate(X,Y,times,method='regression',cv=5, rank=None,crossindicestrain=None, crossindicestest=None):
+    # create multiple decoders for each output in Y for each timepoint
+    # X and Y must be: (observations,times,features) dimensions
+    # method is either 'regression', 'reducedrankregression', or 'classification', 'crossclassification'
+    # ranks is for multivariate reduced regression
+    # crossindices is train+cv test and crosstest observations indices available
+
+
+    if method=='regression': linmethod = sklm.Ridge()
+    elif method=='reducedrankregression': linmethod = ReducedRankRidge(fit_intercept=False, rank=rank)    # ridge_solver='liblinear', 
+    elif method=='classification' or \
+         method=='crossclassification': linmethod = sklm.LogisticRegression(solver='liblinear',penalty='l2')
+    else: print('not allowed method')
+
+    if cv=='loo' or cv=='LOO': cv_method = skms.LeaveOneOut()
+    else: cv_method = skms.StratifiedKFold(cv)
+
+
+    n_observations, n_timestamps, n_features = X.shape
+    n_targets = Y.shape[2]
+
+
+    indexpartition = np.array_split(np.arange(n_timestamps), n_cpu)
+
+    if method=='crossclassification':
+        acc = np.zeros((n_timestamps,n_targets,2+2,3))   # last two dims is (train/test + train/test cross, stats)
+    else:
+        acc = np.zeros((n_timestamps,n_targets,2,3))   # last two dims is (train/test,stats)
+    coef = np.zeros((n_timestamps,n_targets,n_features,3))   # last dim is (stats)
+
+    # with multiprocessing.Pool(processes=n_cpu, initializer=init_worker, initargs=(acc_p, sh_acc)) as pool:
+    with multiprocessing.Pool(processes=n_cpu) as pool:
+        for prc in range(n_cpu):
+            if method=='reducedrankregression':
+                r = pool.apply_async( get_linearregressionmultivariate_singleprocess, (X,Y,indexpartition[prc],linmethod,cv_method) )
+            elif method=='crossclassification':
+                r = pool.apply_async( get_crosslinearregression_singleprocess, (X[crossindicestrain,:,:],Y[crossindicestrain,:,:], \
+                                                                                X[crossindicestest,:,:],Y[crossindicestest,:,:], \
+                                                                                indexpartition[prc],linmethod,cv_method) )
+            else:
+                r = pool.apply_async( get_linearregression_singleprocess, (X,Y,indexpartition[prc],linmethod,cv_method) )
+            ind, a, c = r.get()
+            # print('process',prc,ind, a.shape, acc.shape)
+            acc[ind,:,:,:] = a
+            coef[ind,:,:,:] = c
+    return acc, coef
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # 1st and 2nd order statistics
 
 def getorderstatistics(acrossresponses):
@@ -2364,6 +2573,67 @@ def get_decoder_dv(acrossdecoder, n_neuron, n_preweightelements=7, timeaverage_s
 
 
     return w,w_mean
+
+
+
+
+
+
+
+
+
+
+
+# reduced rank regression from: https://github.com/krey/rrpy/blob/main/tests/test_reduced_rank_ridge.py
+
+def _fit_rrr_no_intercept_all_ranks(X: np.ndarray, Y: np.ndarray, alpha: float, solver: str):
+    ridge = sklearn.linear_model.Ridge(alpha=alpha, fit_intercept=False, solver=solver)
+    beta_ridge = ridge.fit(X, Y).coef_
+    Lambda = np.eye(X.shape[1]) * np.sqrt(np.sqrt(alpha))
+    X_star = np.concatenate((X, Lambda))
+    Y_star = X_star @ beta_ridge.T
+    _, _, Vt = np.linalg.svd(Y_star, full_matrices=False)
+    return beta_ridge, Vt
+
+def _fit_rrr_no_intercept(X: np.ndarray, Y: np.ndarray, alpha: float, rank: int, solver: str, memory=None):
+    memory = sklearn.utils.validation.check_memory(memory)
+    fit = memory.cache(_fit_rrr_no_intercept_all_ranks)
+    beta_ridge, Vt = fit(X, Y, alpha, solver)
+    return Vt[:rank, :].T @ (Vt[:rank, :] @ beta_ridge)
+
+class ReducedRankRidge(sklearn.base.MultiOutputMixin, sklearn.base.RegressorMixin, sklearn.linear_model._base.LinearModel):
+    def __init__(self, alpha=1.0, fit_intercept=True, rank=None, ridge_solver='auto', memory=None):
+        self.alpha = alpha
+        self.fit_intercept = fit_intercept
+        self.rank = rank
+        self.ridge_solver = ridge_solver
+        self.memory = memory
+
+    def fit(self, X, y):
+        if self.fit_intercept:
+            X_offset = np.average(X, axis=0)
+            y_offset = np.average(y, axis=0)
+            # doesn't modify inplace, unlike -=
+            X = X - X_offset
+            y = y - y_offset
+        self.coef_ = _fit_rrr_no_intercept(X, y, self.alpha, self.rank, self.ridge_solver, self.memory)
+        self.rank_ = np.linalg.matrix_rank(self.coef_)
+        if self.fit_intercept:
+            self.intercept_ = y_offset - X_offset @ self.coef_.T
+        else:
+            self.intercept_ = np.zeros(y.shape[1])
+        return self
+
+
+# def test_reduced_rank_regression_rank():
+#     X, Y = sklearn.datasets.make_regression(n_samples=100, n_features=50, n_targets=50, random_state=0, n_informative=25)
+#     estimator = ReducedRankRidge(fit_intercept=True, rank=20).fit(X, Y)
+#     assert estimator.rank_ <= 20, f"{estimator.rank_} > 20"
+
+
+
+
+
 
 
 

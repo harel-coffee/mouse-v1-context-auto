@@ -120,7 +120,7 @@ def plottoaxis_notickmarks(ax):
 
 def setxt(axs,ticks=[0,3000],labels=['0 ms','3000 ms']):
     axs.set_xticks(ticks)
-    axs.set_xticklabels(labels)
+    if labels!=None: axs.set_xticklabels(labels)
 
 
 
@@ -140,12 +140,12 @@ def plottoaxis_stimulusoverlay(ax,T=None,dmts=False,offphase=None):
         ax.fill_between([T['stim2starttime']+dmts,T['stim2starttime']+dmts+500*pq.ms ],[ylim[0],ylim[0]],[ylim[1],ylim[1]],color='gray',alpha=0.3)
 
 
-def plottoaxis_chancelevel(ax,ch=0.0,label=None,xs=None):
+def plottoaxis_chancelevel(ax,ch=0.0,label=None,lw=2,xs=None):
     if xs==None:
         xlim=ax.get_xlim()
-        ax.plot([xlim[0],xlim[1]],[ch,ch],'k--',linewidth=2,alpha=0.2,label=label)
+        ax.plot([xlim[0],xlim[1]],[ch,ch],'k--',linewidth=lw,alpha=0.2,label=label)
     else:
-        ax.plot([xs[0],xs[1]],[ch,ch],'k--',linewidth=2,alpha=0.2,label=label)
+        ax.plot([xs[0],xs[1]],[ch,ch],'k--',linewidth=lw,alpha=0.2,label=label)
         
 
 def plottoaxis_crosshair(ax,x=0.0,y=0.0,color='black'):
@@ -160,8 +160,8 @@ def plottoaxis_crosshair(ax,x=0.0,y=0.0,color='black'):
 def invisibleaxes(axs,which=['right','top']):
     if 'right' in which: axs.spines['right'].set_visible(False)
     if 'top' in which: axs.spines['top'].set_visible(False)
-    if 'left' in which: axs.spines['left'].set_visible(False)
-    if 'bottom' in which: axs.spines['bottom'].set_visible(False)
+    if 'left' in which: axs.spines['left'].set_visible(False); axs.set_yticks([])
+    if 'bottom' in which: axs.spines['bottom'].set_visible(False); axs.set_xticks([])
 
 
 
@@ -277,7 +277,7 @@ def plottoaxis_difference(responsedifference,ax,colorlist='darkcyan',topsem=Fals
 
 
     
-def plottoaxis_decoderrocauc(responsedecode,ax,colorlist=colors1,label=None,plottrain=True,plotcrosstest=False,onlysem=False,smooth=[],lw=2):
+def plottoaxis_decoderrocauc(responsedecode,ax,colorlist=colors1,label=None,plottrain=True,plotcrosstest=False,onlysem=False,sem=True,smooth=[],lw=2):
     # this only plots the decoder performances
     t = responsedecode[0].times
     labels = ['train','test','crosstest']
@@ -296,9 +296,10 @@ def plottoaxis_decoderrocauc(responsedecode,ax,colorlist=colors1,label=None,plot
         if tt in smooth: alphabase=0.05
         else: alphabase=0.2
         ax.plot(t,responsedecode[tt][:,0],linewidth=lw,color=colorlist[tt],alpha=alphabase*5,label=label)
-        ax.fill_between(t, (responsedecode[tt][:,0]-responsedecode[tt][:,2]).squeeze(),\
-                            (responsedecode[tt][:,0]+responsedecode[tt][:,2]).squeeze(),\
-                            alpha=alphabase*2,color=colorlist[tt])
+        if sem:
+            ax.fill_between(t, (responsedecode[tt][:,0]-responsedecode[tt][:,2]).squeeze(),\
+                                (responsedecode[tt][:,0]+responsedecode[tt][:,2]).squeeze(),\
+                                alpha=alphabase*2,color=colorlist[tt])
         if not onlysem:   # if we don't need the clutter for full variance, only sem, ignore this:
             ax.fill_between(t, (responsedecode[tt][:,0]-responsedecode[tt][:,1]).squeeze(),\
                             (responsedecode[tt][:,0]+responsedecode[tt][:,1]).squeeze(),\

@@ -24,180 +24,16 @@ from aggregateallmice import *
 
 
 
-
-
-
-
 def select_data():
-    
-    
-    # datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']
-
-    
-    
-    
-    # datanames = ['ME108','ME110','ME112','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021','DT022','DT030','DT031','DT032']
-    # DT022 'list index out of range' is a very few trial mouse!!!!!! So the followings do not contain them:         # it's not the case anymore since ks2 double check!
-    # datanames = ['ME108','ME110','ME112','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']
-    
-    # ME108 has technically zero spikes, the whole recordings is noise continuously since ks2 sorting!!!
-    # ME112 has zero good nondrifting single activity units since ks2 sorting!!!
-    
-    # DT008 is not possible with all subspaces of receptive field characterization, as it does not contain 45 and 135 degrees!
-    # datanames = ['ME108','ME110','ME112','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']
-
-    
-    # furthur problem is audio noise contamination into LFP in DT030,31,32; below don't contain them:
-    # datanames = ['ME108','ME110','ME112','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021']
-    # not that audio noise is eliminated with the ks2 sorting now
-
-    # datanames = ['DT008','DT019']
-    
-    # runspeed:
-    # datanames = ['DT009','ME108','ME110','ME112','ME113','DT030','DT031','DT032']
-    # datanames = ['DT009','DT014','DT017','DT018','DT019','DT021']
-
-    # nucleus thalami lateralis posterioris
-    # datanames = ['LP001','LP003','LP004','LP005']
-    # datanames = ['LP001']
-    # datanames = ['LP003']
-    # datanames = ['LP004']
-    # datanames = ['LP005']
+ 
+    # individual
+    datanames = ['ME110']
 
 
-    # cortex cingulatis anterioris
-    # datanames = ['AC001','AC003','AC004','AC006','AC007','AC008','AC009']
-    # datanames = ['AC001','AC003','AC006','AC007']
-    # datanames = ['AC001','AC003']
-    # datanames = ['AC006','AC007']
-    # datanames = ['AC001']
-    # datanames = ['AC003']
-    # datanames = ['AC006']
-    # datanames = ['AC007']
+    # all behaviourally symmetric V1
+    # datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    # datanames = [['ME110','ME113','DT009'],['DT014','DT017','DT018'],['DT019','DT021','DT022','MT020_2']]
 
-
-
-    # individuals
-    # datanames = ['ME103']
-    # datanames = ['ME110']
-    # datanames = ['ME113']
-    # datanames = ['DT008']
-    # datanames = ['DT009']
-    # datanames = ['DT014']
-    # datanames = ['DT017']
-    # datanames = ['DT018']
-    # datanames = ['DT019']
-    # datanames = ['DT020']
-    # datanames = ['DT021']
-    # datanames = ['DT022']
-    # datanames = ['DT030']
-    # datanames = ['DT031']
-    # datanames = ['DT032']
-    
-    # datanames = ['AC001']
-    # datanames = ['AC003']
-    # datanames = ['AC004']
-    # datanames = ['AC006']
-    # datanames = ['AC007']
-    
-    # # datanames = ['AC008']
-    # # datanames = ['AC009']
-    # datanames = ['AC006','AC007']
-    # datanames = ['AC001','AC003','AC004','AC006','AC007']
-
-    # datanames = ['DT008','DT009','DT014']
-    # datanames = ['DT009','DT017','DT018','DT022']
-    # datanames = ['DT009','DT014','DT017','DT019']
-    # datanames = ['DT017','DT019']
-    
-    
-    # all
-    datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']
-    
-    # correct runspeed:
-    # datanames = ['ME110','ME113','DT009','DT014','DT017','DT030','DT031','DT032']
-    
-    # split into 2
-    # datanames = ['DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022']
-    # datanames = ['ME103','ME110','ME113','DT030','DT031','DT032']
-    
-    # split into 4
-    # datanames = []
-    # datanames.append(['ME103','ME110','ME113','DT008'])
-    # datanames.append(['DT009','DT014','DT017','DT018'])
-    # # datanames.append(['DT014','DT017','DT018'])
-    # datanames.append(['DT019','DT020','DT021','DT022'])
-    # datanames.append(['DT030','DT031','DT032'])
-
-    # split into 5
-    # datanames = []
-    # datanames.append(['ME103','ME110','ME113'])
-    # datanames.append(['DT008','DT009','DT014'])
-    # datanames.append(['DT017','DT018','DT019'])
-    # datanames.append(['DT020','DT021','DT022'])
-    # datanames.append(['DT030','DT031','DT032'])
-    
-
-
-    # concatenate them again for row
-    # datanames = np.concatenate(datanames)
-
-
-    # longer timewindow
-    # datanames = ['ME110','DT008','DT030','DT032']
-    # datanames = ['DT030','DT032']
-
-    
-    # spike sorting
-    # datanames = ['DT008','DT009']
-    # datanames = ['ME108','ME110']
-    # datanames = ['ME113']
-    # datanames = ['ME108','ME112','DT017','DT018']
-    # datanames = ['DT014','DT032']
-    # datanames = ['DT030','DT031','DT032']
-    # datanames = ['DT008','DT009','DT014','DT017']
-
-    # datanames = ['ME103','ME113']#,'DT022']
-    
-    # spike sort grouping
-    # datanames = ['ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']
-    # datanames = ['DT009','DT014','DT017','DT030','DT031','DT032']        # for subspace
-    # datanames = ['DT021','DT022']
-    # datanames = ['DT020','DT021','DT022']
-    # datanames = ['DT018','DT019','DT021']
-    
-    # datanames = ['ME110','ME113','DT008']
-    # datanames = ['DT009','DT014','DT017']
-    # datanames = ['DT018','DT019','DT021']
-    # datanames = ['DT030','DT031','DT032']
-
-
-
-    # datanames = ['GT102']         # this is the double block experiment: v,av,a,aa,v,av,a,aa,rf
-    
-    
-    
-    
-    
-
-
-    # smart group:
-#    datanames = ['DT008','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']
-    
-    # silly group:
-#    datanames = ['ME108','ME110','ME112','ME113']
-
-
-    # post July 5th group
-#    datanames = ['ME103','DT013','DT015','DT020']
-#    datanames = ['DT013']
-
-
-    # predictors:
-#    datanames = ['ME108','ME110','ME112','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']
-    
-
-    
     
     return datanames
     
@@ -219,28 +55,31 @@ def analysis(datanames, multiple=False):
         
         # full routines:
             
-
+        # aggregatemice_numberofhighlowperformancetrials(datanames)
 
         # aggregatemice_relevantirrelevant_behaviour(datanames)
-        # aggregatemice_relevantirrelevant_singletrialneuralbehaviour(datanames)
+        # aggregatemice_singletrialneuralbehaviour_relevantirrelevantcongruentconflicting(datanames)
+        # aggregatemice_singletrialneuralbehaviour_context(datanames)
         # aggregatemice_subspaces_timeresolved_behaviour_ACC(datanames)
+
 
 
 
         # cluster_celltypes(datanames)
 
-        aggregatemice_decoderaccuracyaverages(datanames)
+        # aggregatemice_decoderaccuracyaverages(datanames)
         
         
         # decoderstobehaviouralperformance(datanames);
         # decodersbehaviourwithtraining(datanames);
-        # preprocess.loadtrainingbehaviouraldata(dn)
         
         # aggregatemice_representationmeasures_featuresvector(datanames)
         
         # aggregatemice_subspaceangles(datanames)
         # aggregatemice_spontaneousdecoder(datanames,'allexpcond')
         # aggregatemice_spontaneousdecoder(datanames,'attendignore')
+        # aggregatemice_acrosscontextcomparison(datanames)
+        # aggregatemice_crosscontextdecoder(datanames)
         # aggregatemice_crossgradientdecoder(datanames)
         # aggregatemice_cueperiod_neuraltobehaviour(datanames)
     
@@ -271,29 +110,20 @@ def analysis(datanames, multiple=False):
         # aggregatemice_subspace_anglesbetweendbnvs(datanames)
         # aggregatemice_subspace_contextrotationdecay(datanames)
         # aggregatemice_calculatedecayconstant(datanames)
+        # aggregatemice_lowdimensionnullspacecontext(datanames)
         # aggregatemice_contextpreonsubpop(datanames)
+
+        # aggregatemice_behavioursymmetrycontext(datanames)
 
 
         # aggregatemice_chancelevel(datanames)
+        # aggregatemice_chancelevel(datanames, reducedtrials=True)
 
 
 
 
         
-        return               # this is to avoid the following preloaded type aggregate routines
-
-
-        # preload blocks routines:
-        blocks = []
-        for dn in datanames:
-            block = preprocess.loaddatamouse(dn,T,continuous_method,recalculate=False)
-            blocks.append(  block  )
-    
-        # nebay.aggregate_analogsignals(datanames, blocks, T)
-        aggregatemice_crossorentation(datanames, blocks, T)
-
-
-
+        return
 
 
 
@@ -304,28 +134,38 @@ def analysis(datanames, multiple=False):
         # for dn in datanames:
             dn = datanames
             # preprocess.convert_trialstocsv(dn); return            # use this once to get the trials_good_start.csv for the mouse
+            # # preprocess.convert_trialstocsv_stimmatrix_early(dn); return # use this once to get the trials_good_start.csv for the mouse (stimmatrix multi-shift version)
+            # preprocess.convert_trialstocsv_stimmatrix(dn); return # use this once to get the trials_good_start.csv for the mouse (stimmatrix multi-shift version)
 
-            # use this to export spike times in a simple format without 
+            # EXPORT spike times in a simple format without trial segmentation
             # preprocess.loaddatamouse(dn,T,continuous_method,recalculate=True,exportspiketrains='save')
+            # block = preprocess.loaddatamouse(dn,T,continuous_method,recalculate=True,exportspiketrains='load')
 
 
-            # loads or creates spike counts, needed for all processes below
+            # LOADS or CREATES spike counts, needed for all processes below
             # normalize True for decoding, False for firing rate and raw PCA
-            # recalculate True to create neo format cache data files with smoothed inst.fr, False to reload neo format
+            # recalculate True to create neo format cache data files with smoothed inst.fr, False to reload
+            block = preprocess.loaddatamouse(dn,T,continuous_method,normalize=True,recalculate=False)
             
-            # calculate and cache in neo format (need normalized and non-normalized runs as well):
-            block = preprocess.loaddatamouse(dn,T,continuous_method,normalize=True,recalculate=True,exportspiketrains='load')
-            
-            # once neo files are present, only need the following line:
-            # block = preprocess.loaddatamouse(dn,T,continuous_method,normalize=True,recalculate=False)
-            
-
-
-            # export trial cut spike trains from the converted neo format:
+            # EXPORT trial cut spike trains from the converted neo format:
             # preprocess.exportspiketrainsfromneo(dn,block)
-            
+            # EXPORT firing rates from neo
+            # preprocess.exportfiringratesfromneo(dn,block); return
+
+
+
             
 
+            # preprocess.loadtrainingbehaviouraldata(dn, recalculate=True, plot=True)
+            # behaviour_likelihood_simplemodels(dn)
+            # behaviour_likelihood_idealobserver(dn)
+            # behaviour_likelihood_idealobserver(dn, onlybehaviourma=True)             # just the behaviour plot, no likelihood needed
+            # behaviour_likelihood_sigmoidlinearmodels(dn)
+
+            # behaviour_symmetry(dn,block,displaystatsonly=True)
+            # behaviour_symmetry(dn,block)
+            # behaviour_symmetry_context(dn,block)
+            # behaviour_symmetry_context(dn,block,equalize=True,n_bootstrap=20)
 
             
             # tests(dn,block)
@@ -344,7 +184,7 @@ def analysis(datanames, multiple=False):
 
 
 
-            compareacrossconditions_maxnormdiffdecoder(dn,block,examine='allexpcond')
+            # compareacrossconditions_maxnormdiffdecoder(dn,block,examine='allexpcond')
             # compareacrossconditions_maxnormdiffdecoder(dn,block,examine='gonogo')
             # compareacrossconditions_maxnormdiffdecoder(dn,block,examine='attendignore')
             # compareacrossconditions_maxnormdiffdecoder(dn,block,examine='character')
@@ -359,12 +199,22 @@ def analysis(datanames, multiple=False):
 
             # comparisonacrossconditions_choice(dn,block)
             # angles_between_decoders(dn,block)
+            # angles_between_decoders_motion(dn,block)
 
             # decoder_crosstest(dn,block)
-            # decoder_crosstest_highres(dn,block)
+            # decoder_crosstest_highres(dn,block,method='singlecontext')
+            # decoder_crosstest_highres(dn,block,method='allcontexts')
+            # decoder_crosstest_highres(dn,block,method='conditionedcontext')
+            # decoder_crosstest_highres(dn,block,method='congruency')
+            # decoder_crosstest_highres(dn,block,method='sparsecontext')
+            # if not dn=='DT014': decoder_crosstest_highres(dn,block,method='sparsecontext-small')
+            # decoder_crosstest_highres(dn,block,method='visualnullspacecontext')
+            # decoder_crosstest_highres(dn,block,method='recurrentnullspacecontext')
+            
 
             
             # decoder_crosstestgradient(dn,block)
+            # decoder_acrosscontextcomparison(dn,block)
             # decoder_crosscontexttest(dn,block)
             # decoder_withincontext_saveprojections(dn,block)
 
@@ -375,11 +225,14 @@ def analysis(datanames, multiple=False):
             # decoder_crosscontexttest(dn,block,trainidx=1,testidx=0)
             # decoder_crosscontexttest(dn,block)
             
+            # decoder_context_clevercluelessperiods(dn,block)
             
 
 
             # decoder_acc_relevantirrelevant(dn,block)
-            # decoder_acc_singletrialneuralbehaviour(dn,block)
+            # decoder_acc_relevantirrelevant(dn,block,area='acc/comparisonV1/')       # compare with V1
+            # decoder_acc_singletrialneuralbehaviour_relevantirrelevantcongruentconflicting(dn,block)
+            # decoder_acc_singletrialneuralbehaviour_context(dn,block)           # for now this requires ks2ifr!
 
 
             
@@ -397,10 +250,16 @@ def analysis(datanames, multiple=False):
 
             # corr_runspeed_dbnv(dn,block)
             # decoder_equalizedrunspeeddistribution(dn,block)
+            
+            # display_movementpca(dn)
+            # decode_movementpca(dn,block)
+            # decode_movementpca_tasks(dn)
+            # subspace_decode_motiontoneuron_reducedrank(dn, block)
+            # comparestationarycontext(dn, block)
 
 
-            # subspaces(dn,block,examine='attendignore')
             # subspaces(dn,block,examine='allexpcond')
+            # subspaces(dn,block,examine='attendignore')
             
             # subspaces_projections(dn,block,examine='allexpcond',play='visual',preon=0)
             # subspaces_projections(dn,block,examine='allexpcond',play='visual',preon=1)
@@ -410,15 +269,22 @@ def analysis(datanames, multiple=False):
 
 
 
-            # subspaces_behaviour_ACC(dn,block)
+            # subspaces_behaviour_ACC(dn,block)        # ACC
+            # subspaces_behaviour_ACC(dn,block,area='acc/comparisonV1/')       # compare with V1
             # subspaces_timeresolved(dn,block)
 
 
 
+            # subspaces_decode_nullspacespanmotion(dn,block)
             # subspaces_decode_nullspace1visual1(dn,block)
+            # subspaces_decode_extendedspacevisualcontext(dn,block)
+            # subspaces_decode_extendedspacevisualcontext_cvsplit(dn,block)
+            # subspaces_decode_contextnullspacevisual(dn,block)
             # subspaces_decode_nullspacerecurrent(dn,block)
+            # subspaces_decode_nullspacerecurrent(dn,block,onlyfirst=True)
 
             # subspaces_orthogonalcontrol_shuffle(dn,block)
+            # subspaces_orthogonalcontrol_shuffle(dn,block,reducedtrials=True)
             # subspaces_leaveoneout(dn,block)
 
             # subspaces_neuralparticipation(dn,block)
@@ -439,6 +305,12 @@ def analysis(datanames, multiple=False):
             # subspacedynamics_decisionvector_basis(dn,block)
             # subspacedynamics_decisionvector_basis_initialconditions(dn,block)
             # subspacedynamics_decisionvector_basis_initialconditions_highres(dn,block)
+
+
+
+
+            # variancemethods_dPCA(dn,block)
+
 
 
             # predictive_glm(dn,block)
@@ -473,7 +345,7 @@ def main():
             analysis(datanames, multiple=multiple)
         else:
             if type(datanames[0])==list:
-                select = 3
+                select = 0
                 for dn in datanames[select]:
                     analysis(dn)
             # single group

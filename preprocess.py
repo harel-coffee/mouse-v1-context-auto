@@ -26,6 +26,7 @@ import neo
 
 # import preprocess as preprocess
 import neurophysiology as neph
+import neurobayesian as neba
 
 
 
@@ -35,15 +36,28 @@ import neurophysiology as neph
 
 
 def getnneurons(datanames):
-    numneurons = {'ME103':8,'ME110':48,'ME113':32,'DT008':10,'DT009':4,'DT014':9,'DT017':34,'DT018':43,'DT019':31,'DT020':12,'DT021':8,'DT022':17,'DT030':6,'DT031':8,'DT032':6}
-    return numneurons
+    numneurons = {'ME103':8,'ME110':48,'ME113':32,'DT008':10,'DT009':4,'DT014':9,'DT017':34,'DT018':43,'DT019':31,'DT020':12,'DT021':8,'DT022':17,'DT030':6,'DT031':8,'DT032':6,'MT020_2':44}
+    numneurons_final = {}
+    for n,kn in enumerate(numneurons.keys()):
+        if kn in datanames:
+            numneurons_final[kn] = numneurons[kn]
+    return numneurons_final
 
 
-def loadexperimentdata(fn):
-    fullpath = pathdatamouse+trialsfolder+'trials-start-good-C'+fn+'data.csv'
+def loadexperimentdata(fn, full=False, multimodalonly=False):
+    if trialsfolder=='':
+        if full: fullpostfix = '-allblocks'
+        else: fullpostfix = ''
+        fullpath = pathdatamouse+trialsfolder+'V1/'+fn+'/'+fn+'-behaviour'+fullpostfix+'.csv'
+    else:
+        fullpath = pathdatamouse+trialsfolder+'trials-start-good-C'+fn+'data.csv'
 
     trialsdata = pd.read_csv(fullpath,sep=',',\
-                 usecols=['start','duration','degree','block','freq','water','punish'])
+                 usecols=['start','duration','degree','block','freq','water','action','punish'])
+
+    if multimodalonly: # restrict to mutli-modal complex task blocks
+        trialsdata = trialsdata.loc[trialsdata['block']%2==1]
+        trialsdata.reset_index(inplace=True)
     
     return trialsdata
 
@@ -78,7 +92,7 @@ def exporthdf5(block,dn,path=cacheprefix+'hdf5/'):
     
 
 
-def loaddatamouse(sessionname='',T=None,continuous_method='count',normalize=True,recalculate=False,exportspiketrains=False):
+def loaddatamouse(sessionname='',T=None,continuous_method='count',normalize=True,recalculate=False,exportspiketrains=None):
 
     normalized = ['o','n'][normalize]      # original, vs. normalized
     
@@ -89,19 +103,25 @@ def loaddatamouse(sessionname='',T=None,continuous_method='count',normalize=True
         print('%s recalculating %s from raw...'%(sessionname,continuous_method))
         # data = sp.io.loadmat(pathdatamouse + sessionname + 'data.mat')
         
-        ES,NR,CT = mat2panda(sessionname)
-        if continuous_method[:3]=='ks2' or continuous_method[:3]=='ks3':        # for the Kilosort2,3: this will hold a # SUA list of spike times
+        if sessionname[:3]=='MT0': # new 2021-2022 mouse
+            ES = {'run': np.zeros(1)}
+            NR = np.zeros((5,5))
+        else: # older mouse
+            ES,NR,CT = mat2panda(sessionname)
+
+
+        if continuous_method[:3]=='ks2' or continuous_method[:3]=='ks3':        # for the Kilosort2,2.5,3: this will hold a # SUA list of spike times
 
             if exportspiketrains=='load':    # reload from simple unit list of list of spikes saved with exportspiketrains = 'save'
                 spiketrains = pickle.load(open(cacheprefix+'phys/spiketrains-%s-%s.pck'%(sessionname,continuous_method),'rb'))
                 CT = pickle.load(open(cacheprefix+'phys/cellinfo-%s-%s.pck'%(sessionname,continuous_method),'rb'))
                 n_neurons = len(spiketrains)
 
-            else:     # generate spiketrains and metadata from from phy2 export files
+            else:     # generate spiketrains and metadata from phy2 export files
 
                 spiketrains,depths,templates = ksphy2neospiketrain(dn=sessionname,T=T)
                 n_neurons = len(spiketrains)
-                    
+                
                 #placeholder of cell identities until calculated
                 # CT = {'idents':pd.Series(depths),'waveforms':pd.Series(-np.ones(n_neurons)) }
                 # neph.identifylayers(block,T,depths)
@@ -116,8 +136,7 @@ def loaddatamouse(sessionname='',T=None,continuous_method='count',normalize=True
                     pickle.dump(CT,open(cacheprefix+'phys/cellinfo-%s-%s.pck'%(sessionname,continuous_method),'wb'))
                     return  # don't start making the neo.analogsignals, this is just an export to file in a simple format
 
-
-        else:      # instfr is JRClust, and NR holds 0s and 1s, so we will need to find timings with np.where later
+        else:      # method='instfr': JRClust, and NR holds 0s and 1s, so we will need to find timings with np.where later
             n_neurons = NR.shape[1]
     
         g = loadexperimentdata(sessionname)
@@ -153,7 +172,7 @@ def loaddatamouse(sessionname='',T=None,continuous_method='count',normalize=True
                     cutend = int(( trialstarts[trx]+T['endtime'] ).magnitude)
                     spiketimes = (np.where( NR.iloc[cutstart:cutend,chx] ) + T['starttime'].magnitude )*pq.ms
                     
-    #            print(spiketimes)
+                # print(spiketimes)
                 trial.spiketrains.append(neo.SpikeTrain(spiketimes,description='neuron %d'%(chx+1),\
                                                         t_start=T['starttime'], t_stop=T['endtime']) )
             block.segments.append(trial)
@@ -164,28 +183,35 @@ def loaddatamouse(sessionname='',T=None,continuous_method='count',normalize=True
         print(n_trials,n_neurons)
         print(block.segments[0].analogsignals[0].shape, type( block.segments[0].analogsignals[0] ) )
             
+        
+        
+        
         # add running speed:
-        block.channel_indexes.append(neo.ChannelIndex(name='running speed', index=np.array([0])))
         L = len(ES['run'])
-        sig = signal.resample(ES['run'],  int(L/(T['dt']/(1*pq.ms)).magnitude) )
-        block.channel_indexes[1].analogsignals.append(neo.AnalogSignal(sig,\
-                                 name='running speed, full length',\
-                                 t_start=0*pq.ms, sampling_period=T['dt'], units=pq.cm/pq.s))
+        if L>1: # if running speed data exists
+            block.channel_indexes.append(neo.ChannelIndex(name='running speed', index=np.array([0])))
+            sig = signal.resample(ES['run'],  int(L/(T['dt']/(1*pq.ms)).magnitude) )
+            block.channel_indexes[1].analogsignals.append(neo.AnalogSignal(sig,\
+                                    name='running speed, full length',\
+                                    t_start=0*pq.ms, sampling_period=T['dt'], units=pq.cm/pq.s))
 
-        for trx,trial in enumerate(block.segments):
-            cutstart = int(( trialstarts[trx]+T['starttime'] ).magnitude)
-            cutend = int(( trialstarts[trx]+T['endtime']+T['dt'] ).magnitude)
+            for trx,trial in enumerate(block.segments):
+                cutstart = int(( trialstarts[trx]+T['starttime'] ).magnitude)
+                cutend = int(( trialstarts[trx]+T['endtime']+T['dt'] ).magnitude)
 
-            L = len(ES['run'][cutstart:cutend])
-            sig = signal.resample(ES['run'].iloc[cutstart:cutend],  int(L/(T['dt']/(1*pq.ms)).magnitude) )
+                L = len(ES['run'][cutstart:cutend])
+                sig = signal.resample(ES['run'].iloc[cutstart:cutend],  int(L/(T['dt']/(1*pq.ms)).magnitude) )
 
-            asig = neo.AnalogSignal(np.asarray(sig), t_start=T['starttime'],\
-                                    name='running speed',\
-                                    sampling_period=T['dt'], units=pq.cm/pq.s)
-            asig.channel_index = block.channel_indexes[1]
-            trial.analogsignals.append(asig)
+                asig = neo.AnalogSignal(np.asarray(sig), t_start=T['starttime'],\
+                                        name='running speed',\
+                                        sampling_period=T['dt'], units=pq.cm/pq.s)
+                asig.channel_index = block.channel_indexes[1]
+                trial.analogsignals.append(asig)
+
+
 
         fst.write_block(block)
+
     else:
         print('%s loading precalculated %s from raw...'%(sessionname,continuous_method))
         block = fst.read_block()
@@ -292,21 +318,27 @@ def ksphy2neospiketrain(dn,T,driftpruninglevel=0):
         pathdatamouse_brainarea = 'ACC/'       
     elif dn[:2]=='LP':
         pathdatamouse_brainarea = 'LP/'
+    elif dn[:2]=='SH':
+        pathdatamouse_brainarea = 'sham/'
     else:
         pathdatamouse_brainarea = 'V1/'
 
     suas = []
     cluster_depths = []
     templates = []
-    for sh_idx in [1,2]: #[1,2]: # go through shanks
+    for sh_idx in [1,2]:       # go through shanks
         sua = []
-        if continuous_method[:3]=='ks2':
+        if (continuous_method[:3]=='ks2') & (continuous_method[2:4]!='25'):
             datafilepath = pathdatamouse_ks2sorted+pathdatamouse_brainarea+'%sshank%d/'%(dn,sh_idx)
+        elif continuous_method[:4]=='ks25':
+            if sh_idx>1: break
+            datafilepath = pathdatamouse_ks25sorted+pathdatamouse_brainarea+dn+'/%sshanks/'%(dn)
         elif continuous_method[:3]=='ks3':
             datafilepath = pathdatamouse_ks3sorted+pathdatamouse_brainarea+'%sshank%d/'%(dn,sh_idx)
 
         # check if the file exists, and ignore the shank, if there is no sorting found:
         if not isfile(datafilepath+'spike_times.npy'):
+            print('spike_times.npy not found for %s'%dn)
             continue
         
         
@@ -363,7 +395,9 @@ def ksphy2neospiketrain(dn,T,driftpruninglevel=0):
         suas.extend(sua)
         cluster_depths.extend(cluster_depth)
         templates.extend(np.array(template))
-    
+    print('executing ks 2.5 sort')
+    print(len(suas))
+
         
     return suas,cluster_depths,templates
 
@@ -375,12 +409,43 @@ def ksphy2neospiketrain(dn,T,driftpruninglevel=0):
 
 
 
-def exportspiketrainsfromneo(dn,block):
+def exportspiketrainsfromneo(dn,block, multimodalonly=True):
     n_trials = len(block.segments)
     n_neurons = len(block.segments[0].spiketrains)
     print('saving %s, neurons %d, trials %d'%(dn,n_neurons,n_trials))
-    session = [  [ neuronspiketrain.magnitude   for neuronspiketrain in trial.spiketrains ] for trial in block.segments ]
+    triallist = [1,2,3,4]
+    if multimodalonly: triallist = [2,4]
+    session = [  [ neuronspiketrain.magnitude   for neuronspiketrain in trial.spiketrains ] for trial in block.segments\
+                 if trial.annotations['block'] in triallist]
+    
     pickle.dump(session,open(cacheprefix+'phys/spiketrains,trialcut-%s.pck'%(dn),'wb'))
+
+
+
+
+
+def exportfiringratesfromneo(dn,block, multimodalonly=True):
+    n_trials = len(block.segments)
+    n_neurons = len(block.segments[0].spiketrains)
+    print('saving %s, neurons %d, trials %d'%(dn,n_neurons,n_trials))
+    triallist = [1,2,3,4]
+    if multimodalonly: triallist = [2,4]
+    session = [  trial.analogsignals[0].magnitude for trial in block.segments\
+                 if trial.annotations['block'] in triallist]
+    session = np.array(session)
+    # session = np.swapaxes(session[:,:-1,:],0,1)
+    # print(session.shape)
+    # plt.plot(session.mean(axis=(1)))
+    pickle.dump(session,open(cacheprefix+'phys/firingrates,trialcut-%s.pck'%(dn),'wb'))
+
+
+
+
+
+
+
+
+
 
 
 
@@ -839,14 +904,131 @@ def convert_trialstocsv(dn,ES=None):
     # plt.plot(np.arange(t0,t1),events_astim[t0:t1],'o',color='forestgreen')
 
 
+    return
+
+
+
+
+
+def convert_trialstocsv_stimmatrix_early(dn):
+
+
+
+    mstruct = '/estruct/stimmatrix'
     
+    # objects1 = ['vstim','astim','licking','water','run']
+    # objects2 = ['unitmatrix']
+
+    if dn[:2]=='SH':
+        pathdatamouse_brainarea = 'sham/'
+    else:
+        pathdatamouse_brainarea = 'V1/'
+    
+    f = h5py.File(pathdatamouse+pathdatamouse_brainarea+dn+'data.mat','r')
+
+    D = np.asarray(f.get(mstruct)).T
+    f.close()
+    print('recording trials', D.shape)
+
+    events = pd.DataFrame(D,columns=['start','stop','degree','freq','block','action','dprime','laser'])
+    
+    events.insert(loc=1,column='duration',value=(events['stop']-events['start'])*1000)         # ms
+
+    events = events.drop(['stop','dprime'],axis=1)
+    if events['laser'].sum()==0: events = events.drop('laser',axis=1)  # if there is no optogenetic laser, just drop the column
+
+
+    events['start'] *= 1000        # ms
+
+
+    mask_au_notnan = ~np.isnan(events['freq'])
+    events['freq'][mask_au_notnan] = np.array([5000,10000], dtype=np.int16)[events['freq'][mask_au_notnan].values.astype(np.int16)]
+    
+    # coding of action is: 0 hit (lick), 1 miss, 2 correct rejection, 3 false alarm (lick)
+    events['action'] = (events['action']==0) | (events['action']==3)
+
+    water = np.zeros((events.shape[0]))    # go signal
+    mask_vi = events['block']<=1
+    water[mask_vi] = (events['degree'][mask_vi]==45)
+    mask_au = events['block']>=2
+    water[mask_au] = (events['freq'][mask_au]==5000)
+    
+    events.insert(loc=4,column='water',value=water==1)
+    
+    events['punish'] = events['action'] ^ events['water']
+
+    
+    # show and save
+    # print(events)
+    events.to_csv(pathdatamouse+'trials-generated/trials-start-good-C%sdata.csv'%dn,index=False)
+
+
+    return
  
 
 
 
 
 
+def convert_trialstocsv_stimmatrix(dn):
+    # from matlab stimulus event file, 2nd version
 
+
+    # mstruct = '/Behav%s'%dn[:-1]
+    # mstruct = '/stimmatrix'
+    mstruct = '/behaviour'
+        
+    if dn[:2]=='SH':
+        pathdatamouse_brainarea = 'sham/'
+    else:
+        pathdatamouse_brainarea = 'V1/'
+    
+    f = h5py.File(pathdatamouse+pathdatamouse_brainarea+'%s/'%dn+dn+'_behaviour.mat','r')
+
+    D = np.asarray(f.get(mstruct)).T
+    f.close()
+    print('recording trials', D.shape)
+
+    events = pd.DataFrame(D,columns=['start','stop','degree','freq','block','action','dprime','laser'])
+    # print(events)
+    
+    blockstart_receptivefield = ( ~np.isnan(events['degree']) ) & ( (events['degree']!=45) & (events['degree']!=135) )
+    # print(np.where(blockstart_receptivefield==True)[0])
+    events['block'].loc[np.where(blockstart_receptivefield==True)[0]] = 4      # convert receptive field to block #5
+    
+    events.insert(loc=1,column='duration',value=(events['stop']-events['start'])*1000)         # ms
+
+    events = events.drop(['stop','dprime'],axis=1)
+    if events['laser'].sum()==0: events = events.drop('laser',axis=1)  # if there is no optogenetic laser, just drop the column
+
+
+    events['start'] *= 1000        # ms
+
+
+    mask_au_notnan = ~np.isnan(events['freq'])
+    events['freq'][mask_au_notnan] = np.array([5000,10000], dtype=np.int16)[events['freq'][mask_au_notnan].values.astype(np.int16)]
+    
+    # coding of action is: 0 hit (lick), 1 miss, 2 correct rejection, 3 false alarm (lick)
+    events['action'] = (events['action']==0) | (events['action']==3)
+
+    water = np.zeros((events.shape[0]))    # go signal
+    mask_vi = events['block']<=1
+    water[mask_vi] = (events['degree'][mask_vi]==45)
+    mask_au = events['block']>=2
+    water[mask_au] = (events['freq'][mask_au]==5000)
+    
+    events.insert(loc=5,column='water',value=water==1)
+    
+    events.insert(loc=7,column='punish',value=events['action']^events['water'])
+    # events['punish'] = events['action'] ^ events['water']
+
+    
+    # show and save
+    # print(events)
+    events.to_csv(pathdatamouse+pathdatamouse_brainarea+'%s/'%dn+trialsfolder+'%s-behaviour.csv'%dn,index=False)
+
+
+    return
 
 
 
@@ -861,8 +1043,9 @@ def loadtrainingbehaviouraldata(datafileid, useonlymultimodal=False, recalculate
     
     if recalculate:
         
-        # loaded = sp.io.loadmat(pathdatamouse + 'trainingbehaviour/' + datafileid + '.mat')
-        loaded = h5py.File(pathdatamouse + 'trainingbehaviour/' + datafileid + '.mat','r')
+        loaded = sp.io.loadmat(pathdatamouse + 'trainingbehaviour/' + datafileid + '.mat')
+        # loaded = h5py.File(pathdatamouse + 'trainingbehaviour/' + datafileid + 'behav.mat','r')
+        # loaded = h5py.File(pathdatamouse + 'trainingbehaviour/' + datafileid + '.mat','r')
         data = loaded['BehavStruct'][0][0]      # data contains all the sessions, visual, audio, then mixed combined...
         sessionids = data.dtype.names           # this holds the session id names,   v01,a01..., and mixed av01, va01, av02... etc.
         L = len(sessionids)
@@ -881,14 +1064,14 @@ def loadtrainingbehaviouraldata(datafileid, useonlymultimodal=False, recalculate
         
     
         # load the recording session behav as weel:
-        bp = preprocess.assessbehaviouralperformancefullarray(datafileid)
+        bp = assessbehaviouralperformancefullarray(datafileid)
     
     
         
     #    print( datafileid, multimodalsessionlabels, multimodalsessionvisualfirst )
         K = len(multimodalsessions)
         
-        performances = [] 
+        performances = []
         hits = []
         misses = []
         corrrejs = []
@@ -1044,8 +1227,8 @@ def loadtrainingbehaviouraldata(datafileid, useonlymultimodal=False, recalculate
         
         
         # now save everything what was calculated
-        pickle.dump( (alldata, overallperformance, overallperformance_sem, performances, cueperiods, cue_est), \
-                    open(cacheprefix+'phys/behaviour,trainingsessions-%s.pck'%(datafileid),'wb') )
+        # pickle.dump( (alldata, overallperformance, overallperformance_sem, performances, cueperiods, cue_est), \
+        #             open(cacheprefix+'phys/behaviour,trainingsessions-%s.pck'%(datafileid),'wb') )
 
     else:     # just reload
         alldata, overallperformance, overallperformance_sem, performances, cueperiods, cue_est = \
@@ -1099,11 +1282,71 @@ def getorderattended(datafileid):
         datafileid=='AC003':
         bltv = [3,4]        # these experiments: first attend audio, then attend visual
         blta = [1,2]
+    elif datafileid in ['SZ010','MT010_1','MT010_2','MT010_3','MT010_4','MT010_5',  'MT020_1','MT020_3',  'MT030_1','MT030_2',  'MT040_1',]:
+        bltv = [1,2]
+        blta = [3,4]
+    elif datafileid in ['MT020_2']:
+        bltv = [1,2]
+        blta = [3,4]
     else:                  # give an error
-        print('warning: data file %s, order is not specified'%datafileid)
+        print('warning: data file %s, context order is not specified'%datafileid)
         bltv = None
         blta = None
     return bltv,blta
+
+
+
+
+
+
+
+
+
+def loadvideopca(dn, twopart=False):
+
+    if twopart:
+        for b in ['1','2']:
+            fn = dn+'-b%s-movement,pca.csv'%b
+            if trialsfolder=='':
+                fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
+            else:
+                fullpath = pathdatamouse+dn+'/'+fn
+
+            if b=='1':
+                movementpcs = pd.read_csv(fullpath,sep=',',header=0)
+            else:
+                movementpcs2 = pd.read_csv(fullpath,sep=',',header=0)
+                movementpcs = pd.concat([movementpcs, movementpcs2], axis=0)
+    else:   # this version saved a single pca made over the entire two blocks (two videos) concatenated
+        fn = dn+'-movement,pca.csv'
+        if trialsfolder=='':
+            fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
+        else:
+            fullpath = pathdatamouse+dn+'/'+fn
+
+        movementpcs = pd.read_csv(fullpath,sep=',',header=0)
+
+    return movementpcs
+
+
+
+
+def loadmovingthresholdtrials(dn):
+        fn = dn+'-motionenergy,threshold.csv'
+        fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
+
+        movingtrials = pd.read_csv(fullpath,sep=',',header=0)
+        # print(movingtrials)
+        thresholds = (movingtrials.columns[1:].values).astype(np.float)
+        proportions = movingtrials['proportion'].values[::140]
+        movingtrials = movingtrials.iloc[:,1:].values.astype(np.bool8)
+        # print(proportions.shape, movingtrials.shape)
+        print("thresholds:", thresholds)
+        print("proportions:", proportions)
+
+        return thresholds, proportions, movingtrials
+
+
 
 
 
@@ -1617,14 +1860,42 @@ def get_conditioned_behaviour(dn,comparisongroups,taskaspects):
     return perftask
 
 
+def get_conditioned_behaviour_lastn(dn,comparisongroups,taskaspects,lastntrials):
+
+    g = loadexperimentdata(dn)
+
+    g['block']+=1
+    success = g['punish']==False
+
+    perftask = []
+    for cx,comparison in enumerate(taskaspects):
+        perf = []
+        for c in comparisongroups[cx]:
+            # print(g['block'] in  c[0]))
+            cond = (  (g['block'].isin(c[0])  )     |   (c[0]==[])   )    & \
+                   (  (g['degree'].isin(c[1])  )     |   (c[1]==[])   )    & \
+                   (  (g['freq'].isin(c[2])  )     |   (c[2]==[])   )
+
+            lastn = min(sum(cond),lastntrials)
+            divider = cond[-lastn:].sum()
+            if divider==0: 
+                perfindiv = success[cond].sum()/cond.sum()
+            else:
+                perfindiv = success[-lastn:][cond[-lastn:]]/cond[-lastn:].sum()
+            perf.append(perfindiv)
+        perftask.append(perf)
+
+    perftask = pd.DataFrame(np.array(perftask),index=taskaspects,columns=['go','nogo'])
+    
+
+    return perftask
 
 
 
 
 
 
-
-def get_conditioned_behaviour_singletrial(dn,comparisongroups,taskaspects):
+def get_conditioned_behaviour_singletrial(dn,comparisongroups,taskaspects,classlabels=['go','nogo']):
 
     # mal = 5
 
@@ -1636,11 +1907,10 @@ def get_conditioned_behaviour_singletrial(dn,comparisongroups,taskaspects):
 
 
 
-
     behma_task = []     # behavior variables collector
     for cx,comparison in enumerate(taskaspects):
         behma = []
-        for chx,c in enumerate(comparisongroups[cx]):    # go nogo
+        for chx,c in enumerate(comparisongroups[cx]):    # go nogo, or context av aa, etc.
             # print(g['block'] in  c[0]))
             cond = (  (g['block'].isin(c[0])  )     |   (c[0]==[])   )    & \
                    (  (g['degree'].isin(c[1])  )     |   (c[1]==[])   )    & \
@@ -1649,8 +1919,9 @@ def get_conditioned_behaviour_singletrial(dn,comparisongroups,taskaspects):
             # behma_task_indiv = np.convolve(success[cond],np.ones(mal)/mal)
             # behma_task_indiv = cond.astype(np.int16)
             
+            # collect the response successes+failures for the conditioned trials
             behma_task_indiv = success[cond]
-            behma_task_indiv.rename(['go','nogo'][chx],inplace=True)
+            behma_task_indiv.rename(classlabels[chx],inplace=True)     # rename success collection columns to the classnames
 
             # behma_task_indiv = pd.Series(behma_task_indiv).rolling(window=5,  center=True, min_periods=2).mean()
 
@@ -1717,6 +1988,51 @@ def get_conditioned_behaviour_singletrial(dn,comparisongroups,taskaspects):
 
 
 
+def get_behaviour_conditional_hypercube(dn, multimodalonly=True, lowprob = 1e-3):
+
+    # this is an estimation of the stochasticity of seemingly "perfect" choices in data,
+    # probability of still making an error (motor, attention, etc.)
+
+    g = loadexperimentdata(dn)
+
+    g['block']+=1
+    g['success'] = g['punish']==False
+    g['action'] = np.logical_not(np.logical_xor(g['water'], g['success']))
+    
+    blv,bla = getorderattended(dn)
+    theta = np.zeros((2,2,2))      # animal choice
+    triallist = np.empty((2,2,2),dtype=object)   # triallist
+    labels = np.empty((2,2,2),dtype=object)
+
+    n_trials = g['block'].isin([blv[1],bla[1]]).sum()
+    
+
+    for cx,context in enumerate([blv[1],bla[1]]):
+        for vx,visual in enumerate([45,135]):
+            for ax,audio in enumerate([5000,10000]):
+                mask = (g['block']==context) & (g['degree']==visual) & (g['freq']==audio)
+                h = g[mask]['action']
+                # save actions:
+                triallist[cx,vx,ax] = h.values
+                # save probability of lick:
+                theta[cx,vx,ax] = h.mean()
+                if theta[cx,vx,ax]==0: theta[cx,vx,ax] = lowprob
+                elif theta[cx,vx,ax]==1: theta[cx,vx,ax] = 1-lowprob
+
+                labels[cx,vx,ax] = ['visual','audio'][cx] + ',' + ['45','135'][vx] + ',' + ['5000','10000'][ax]
+                # print(  l[cx,vx,ax],'   ',  theta[cx,vx,ax], len(triallist[cx,vx,ax]), n_trials   )
+
+    return theta,triallist,n_trials,labels
+
+
+
+
+
+
+
+
+
+
 
 
 def getblocklengths(dn):
@@ -1761,4 +2077,4 @@ def refoldlayerindices(ix1,ix2):
 
         
 if __name__ == '__main__':
-    print('preprocess main')
+    print('here come the monks...')

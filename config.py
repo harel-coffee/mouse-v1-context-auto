@@ -18,12 +18,15 @@ import pandas as pd
 
 import os
 import pickle
-import dask.bag as db
+# import dask.bag as db
+import multiprocessing
+from os import cpu_count
+n_cpu = cpu_count()
 
 #import matplotlib.image as mimg
 import matplotlib.pyplot as plt
 import matplotlib.lines
-import matplotlib.colors as mcs
+import matplotlib.colors as clrs
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.animation import FuncAnimation
 
@@ -54,11 +57,16 @@ globalsave = 0
 # kilosort3 
 # continuous_method = 'ks3ifr'; binsize = 100*pq.ms     # dt 10 ms, bin 100 ms
 
+# kilosort2.5,   note, that for any analysis for 2.5 or 3 version is recommended to symlink to ks2ifr neo files
+# continuous_method = 'ks25ifr'; binsize = 100*pq.ms     # dt 10 ms, bin 100 ms
+
 
 # kilosort2
 continuous_method = 'ks2ifr'; binsize = 100*pq.ms     # dt 10 ms, bin 100 ms
 # continuous_method = 'ks2count'; binsize = 10*pq.ms     # dt 1 ms, bin 1 ms      for DT014
 # continuous_method = 'ks2count'; binsize = 1*pq.ms     # dt 1 ms, bin 1 ms      for DT014
+
+
 
 # janelia JRC
 # continuous_method = 'instfr'; binsize = 100*pq.ms     # dt 10 ms, bin 100 ms
@@ -79,6 +87,8 @@ T = {'dt':10*pq.ms,'bin':binsize,'ks2samplingrate':25*pq.kHz,\
      'stimstarttime':0*pq.ms,'stimendtime':3000*pq.ms,'rewardtime':2000*pq.ms}
 if continuous_method=='count': T['dt'] = T['bin']
 if continuous_method=='ks2count': T['dt'] = T['bin']
+if continuous_method=='ks25count': T['dt'] = T['bin']
+if continuous_method=='ks3count': T['dt'] = T['bin']
 T['offsettime'] = T['starttime']
 T['offset_idx'] = int((T['starttime']/T['dt']).magnitude)
 T['start_idx'] = 0
@@ -93,18 +103,27 @@ dt = T['dt'] # shortcut
 # decoding time-course feature T['width_idx']
 T['decodingwindow-widthtime'] = 50*pq.ms
 T['width_idx'] = int(( T['decodingwindow-widthtime'] / T['dt'] ).magnitude)
-
+T['videofps'] = 20.
 
 
 
 
 # data storages
 
-
-pathdatamouse = '../../../data/mice/peyman2019,19mice/'
+# # pre 2022
+pathdatamouse = '../../../data/ucla/2018-2020,jrc+behav+training-mat,events-csv/'
 trialsfolder = 'trials-generated/'
-pathdatamouse_ks2sorted = '../../../data/mice/raw/ks/default/'
-pathdatamouse_ks3sorted = '../../../data/mice/raw/ks/kilosort3/'
+pathdatamouse_ks2sorted = '../../../data/ucla/2018-2020,wigner,ks+phy/kilosort2/'
+pathdatamouse_ks3sorted = '../../../data/ucla/2018-2020,wigner,ks+phy/kilosort3/'
+
+# from 2021
+# pathdatamouse = '../../../data/ucla/2021-2022,gonogo/'
+# trialsfolder = ''
+# pathdatamouse_ks2sorted = pathdatamouse
+# pathdatamouse_ks25sorted = pathdatamouse
+# pathdatamouse_ks3sorted = pathdatamouse
+
+
 
 
 
@@ -120,11 +139,15 @@ cacheprefix = '../cache/'
 
 resultpathprefix = '../results/'
 # resultpathseries = 'phys/'
+# resultpathseries = 'behaviour/'
+# resultpathseries = 'symmetric/'
+# resultpathseries = 'motion/pca/'
+# resultpathseries = 'motion/subspaces/'
 # resultpathseries = 'firingrate/'
-resultpathseries = 'differences,temporal/'
+# resultpathseries = 'differences,temporal/'
 # resultpathseries = 'differences,count/'
 # resultpathseries = 'runspeed,temporal/'
-# resultpathseries = 'subspaces/'
+resultpathseries = 'subspaces/'
 # resultpathseries = 'subspaces-acc/'
 # resultpathseries = 'decoding/'
 # resultpathseries = 'predictive/'
@@ -150,7 +173,8 @@ publish = False
 #resultpath = '../../../publish/technicalreports/hfsp-report2019/'
 #resultpath = '../../../publish/conferences/ccn2019/'
 #resultpath = '../../../publish/journals/journal2019summer/figures/'
-#ext = '.pdf'
+# resultpath = '../../../publish/conferences/mitt2022/poster/'
+# ext = '.pdf'
 #publish = True
 
 

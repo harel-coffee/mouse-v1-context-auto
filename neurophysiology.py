@@ -69,8 +69,17 @@ def downsample(a,r):
     return a_r
 
 
-
-
+def downsamplearray(a,r,axis=0):
+    # resample the axis-th dimension
+    if axis==-1: axis = len(a.shape)
+    # move reshape axis to the first dimension
+    a_r = np.moveaxis(a,axis,0)
+    s_r = np.array(a_r.shape)
+    newshape = [s_r[0]//r, r]
+    newshape.extend(s_r[1:])
+    a_r = a_r.reshape( newshape ).mean(axis=1)  # perform the rolling mean
+    a_r = np.moveaxis(a_r,0,axis)   # move back from operating 0th axis to the original axis
+    return a_r
 
 
 
@@ -314,7 +323,7 @@ def makecontinuoussignal(block,T,continuous_method='count',species='monkey',norm
         channels_label = ' MUA '
     elif species=='mouse':
         channels_label = ' SUA '
-    if continuous_method=='instfr' or continuous_method=='ks2ifr' or continuous_method=='ks3ifr': sampling = T['dt']
+    if continuous_method=='instfr' or continuous_method=='ks2ifr' or continuous_method=='ks25ifr' or continuous_method=='ks3ifr': sampling = T['dt']
     elif continuous_method=='count' or continuous_method=='ks2count' or continuous_method=='ks3count': sampling = T['bin']
         
     chasigs = []
@@ -322,11 +331,11 @@ def makecontinuoussignal(block,T,continuous_method='count',species='monkey',norm
     for trx,trial in enumerate(block.segments):
         sigs = []
         for chx in block.channel_indexes[0].index:
-            if continuous_method=='instfr' or continuous_method=='ks2ifr' or continuous_method=='ks3ifr':       # instantenous firing rate with kernel smoothing
+            if continuous_method=='instfr' or continuous_method=='ks2ifr' or continuous_method=='ks25ifr' or continuous_method=='ks3ifr':       # instantenous firing rate with kernel smoothing
                 sig,t = instantanousrate(  spiketimes=trial.spiketrains[chx],\
                                            window_width=T['bin'],sampling_period=T['dt']  )
                 if trx%5==0 and chx==0: print('trial:',trx)
-            elif continuous_method=='count' or continuous_method=='ks2count' or continuous_method=='ks3count':      # spike count in disjoint bins
+            elif continuous_method=='count' or continuous_method=='ks2count' or continuous_method=='ks25ifr' or continuous_method=='ks3count':      # spike count in disjoint bins
                 sig,t = countspikes(  spiketimes=trial.spiketrains[chx],\
                                            window_width=T['bin'],sampling_period=T['dt']  )
 #                np.histogram(trial.spiketrains[chx],bins=int(T['endtime']/T['dt']),range=(0,T['endtime'].magnitude))
@@ -741,6 +750,26 @@ def trialaveraging(rl):
 
 
 
+def slidingwindow(X,wx=5):
+    n_timecourse = X.shape[1]
+    Y = np.zeros((X.shape[0],X.shape[1]-wx,X.shape[2]*wx))
+    for tx in range(n_timecourse-wx):
+        Y[:,tx,:] = np.reshape(X[:,tx:tx+wx,:],[Y.shape[0],1,Y.shape[2]]).squeeze()
+    return Y
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def get_auctimenormalized(asig,starttime,endtime,cropzero=True,title=None):
     # check if start and end are indexes or times
     if type(starttime)==pq.Quantity:
@@ -812,6 +841,134 @@ def showcontinuousrateexamples():
         
         plt.suptitle('transforming spike trains to rate, %s rate'%f_labels[f_levels])
 #        plt.savefig('../results/spikes/spiketorate-illustration,%srate.png'%f_labels[f_levels])
+
+
+
+
+
+
+
+
+def range_unit_root_test(x, store=False):
+    """
+    FROM STATSTOOLS
+    Range unit-root test for stationarity.
+    Computes the Range Unit-Root (RUR) test for the null
+    hypothesis that x is stationary.
+    Parameters
+    ----------
+    x : array_like, 1d
+        The data series to test.
+    store : bool
+        If True, then a result instance is returned additionally to
+        the RUR statistic (default is False).
+    Returns
+    -------
+    rur_stat : float
+        The RUR test statistic.
+    p_value : float
+        The p-value of the test. The p-value is interpolated from
+        Table 1 in Aparicio et al. (2006), and a boundary point
+        is returned if the test statistic is outside the table of
+        critical values, that is, if the p-value is outside the
+        interval (0.01, 0.1).
+    crit : dict
+        The critical values at 10%, 5%, 2.5% and 1%. Based on
+        Aparicio et al. (2006).
+    resstore : (optional) instance of ResultStore
+        An instance of a dummy class with results attached as attributes.
+    Notes
+    -----
+    The p-values are interpolated from
+    Table 1 of Aparicio et al. (2006). If the computed statistic is
+    outside the table of critical values, then a warning message is
+    generated.
+    Missing values are not handled.
+    References
+    ----------
+    .. [1] Aparicio, F., Escribano A., Sipols, A.E. (2006). Range Unit-Root (RUR)
+        tests: robust against nonlinearities, error distributions, structural breaks
+        and outliers. Journal of Time Series Analysis, 27 (4): 545-576.
+    """
+
+    nobs = x.shape[0]
+
+    # if m is not one, n != m * n
+    if nobs != x.size:
+        raise ValueError("x of shape {0} not understood".format(x.shape))
+
+    # Table from [1] has been replicated using 200,000 samples
+    # Critical values for new n_obs values have been identified
+    pvals = [0.01, 0.025, 0.05, 0.10, 0.90, 0.95]
+    n = np.array(
+        [25, 50, 100, 150, 200, 250, 500, 1000, 2000, 3000, 4000, 5000]
+    )
+    crit = np.array(
+        [
+            [0.6626, 0.8126, 0.9192, 1.0712, 2.4863, 2.7312],
+            [0.7977, 0.9274, 1.0478, 1.1964, 2.6821, 2.9613],
+            [0.9070, 1.0243, 1.1412, 1.2888, 2.8317, 3.1393],
+            [0.9543, 1.0768, 1.1869, 1.3294, 2.8915, 3.2049],
+            [0.9833, 1.0984, 1.2101, 1.3494, 2.9308, 3.2482],
+            [0.9982, 1.1137, 1.2242, 1.3632, 2.9571, 3.2842],
+            [1.0494, 1.1643, 1.2712, 1.4076, 3.0207, 3.3584],
+            [1.0846, 1.1959, 1.2988, 1.4344, 3.0653, 3.4073],
+            [1.1121, 1.2200, 1.3230, 1.4556, 3.0948, 3.4439],
+            [1.1204, 1.2295, 1.3303, 1.4656, 3.1054, 3.4632],
+            [1.1309, 1.2347, 1.3378, 1.4693, 3.1165, 3.4717],
+            [1.1377, 1.2402, 1.3408, 1.4729, 3.1252, 3.4807],
+        ]
+    )
+
+    # Interpolation for nobs
+    inter_crit = np.zeros((1, crit.shape[1]))
+    for i in range(crit.shape[1]):
+        f = sp.interpolate.interp1d(n, crit[:, i])
+        inter_crit[0, i] = f(nobs)
+
+    # Calculate RUR stat
+    xs = pd.Series(x)
+    exp_max = xs.expanding(1).max().shift(1)
+    exp_min = xs.expanding(1).min().shift(1)
+    count = (xs > exp_max).sum() + (xs < exp_min).sum()
+
+    rur_stat = count / np.sqrt(len(x))
+
+    k = len(pvals) - 1
+    for i in range(len(pvals) - 1, -1, -1):
+        if rur_stat < inter_crit[0, i]:
+            k = i
+        else:
+            break
+
+    p_value = pvals[k]
+
+    warn_msg = """\
+The test statistic is outside of the range of p-values available in the
+look-up table. The actual p-value is {direction} than the p-value returned.
+"""
+    direction = ""
+    if p_value == pvals[-1]:
+        direction = "larger"  # needed to swap to make sense compared to statsmodel version
+    elif p_value == pvals[0]:
+        direction = "smaller"
+
+    if direction:
+        print('range unit root test> warning> interpolation outside table, actual p value',direction,'than reported.')
+
+    crit_dict = {
+        "10%": inter_crit[0, 3],
+        "5%": inter_crit[0, 2],
+        "2.5%": inter_crit[0, 1],
+        "1%": inter_crit[0, 0],
+    }
+
+    return rur_stat, p_value, crit_dict
+
+
+
+
+
 
 
 
