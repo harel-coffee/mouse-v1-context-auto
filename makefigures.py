@@ -23,6 +23,7 @@ import pickle
 import h5py
 
 #import matplotlib.image as mimg
+import matplotlib.colors as mcs
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.colors as clrs
@@ -5930,7 +5931,7 @@ def supplementaryfigure1():    # drift control
         
     
     
-        pathdatamouse_ks2sorted = '../../../data/mice/raw/ks/default/'
+        pathdatamouse_ks2sorted = '../../../data/ucla/2018-2020,wigner,ks+phy/kilosort2/'
         pathdatamouse_brainarea = 'V1/'
         
 
