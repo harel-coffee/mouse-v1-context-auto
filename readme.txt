@@ -5,6 +5,9 @@ Márton Albert Hajnal, Karen Safaryan, Duy Tran, Michael Einstein, Mauricio Vall
 
 
 makefigure.py: will produce figure files from precalculated and cached results data
+
+caches can be recalculated using the following files:
+
 config.py: setup file for modules, sampling constants, experiment trial structure, output files, etc.
 run.py: command center, choose which mice to include in a given analysis and choose which calculation routines to run
 aggregateallmice.py: performs calculations and exports caches for data with multiple mice
@@ -29,8 +32,10 @@ or the pickle.load(open()) functions from makefigure.py file
 
 
 
-The raw input data structures are from files in .mat and phy2 via kilosort.
-We provide an internal version of the raw data in neo format:
+The raw input data structures are from files in .mat and phy2 via kilosort,
+which are huge, and not shared, so Supp Fig 1 cannot be recreated.
+
+We provide an internal version of the raw data in neo format (.nio files):
 https://neo.readthedocs.io/en/stable/install.html
 
 
