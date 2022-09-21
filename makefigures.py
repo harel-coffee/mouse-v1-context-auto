@@ -1311,7 +1311,7 @@ def figure1():
     axs = ax[1,1]
     axins = []
     for l in range(2):
-        axins.append(axs.inset_axes([0, 0.5-0.5*l, 1, 0.45],transform=axs.transAxes))
+        axins.append(axs.inset_axes([0, 0.5-0.5*l, 1, 0.45],transform=axs.transAxes))            # for two panels: [0, 0.5-0.5*l, 1, 0.45], for three panels: [0, 0.66666-0.33333*l, 1, 0.28]
         axins[l].set_xticklabels([])
     axs.axis('off')
 
@@ -1321,6 +1321,8 @@ def figure1():
 
     trialnumbers = pickle.load(open(cacheprefix+'behaviour/numtrials-n%d-highlowperformance'%n_mice,'rb'))
     print(trialnumbers)
+    fractioncorrect = pickle.load(open(cacheprefix+'behaviour/fraccorrect-n%d-highlowperformance'%n_mice,'rb'))
+    fractioncorrect_in = pickle.load(open(cacheprefix+'behaviour/fraccorrect,in-n%d-highlowperformance'%n_mice,'rb'))
 
     # reorder contexts, so that visual is always first for display purposes
     contextorders = np.zeros(n_mice, dtype=np.int16)
@@ -1338,24 +1340,62 @@ def figure1():
 
 
     for bx in range(2):
-        # axs.bar(x=np.arange(0,4*n_mice,4)+bx*0.75-2,height=trialnumbers[:,bx], color=colors[bx])
-        axs = axins[bx]
 
-        axs.bar(x=np.arange(0,n_mice),height=trialnumbers[:,bx*2], color=colors[bx])
+        # nyumber of available trials
+        # axs.bar(x=np.arange(0,4*n_mice,4)+bx*0.75-2,height=trialnumbers[:,bx], color=colors[bx])
+        axs = axins[0]
+
+        axs.bar(x=np.arange(0,n_mice)-0.1666+bx/3,height=trialnumbers[:,bx*2], width=0.3,color=colors[bx],label=labels[bx])
     
-        axs.set_xticks([])
-        axs.text(0.5,0.9,labels[bx],fontsize='x-small',color=colors[bx],verticalalignment='top',horizontalalignment='center',transform=axs.transAxes)
-        axs.set_ylabel('number of high\nperformance trials',fontsize='x-small')
-        axs.set_ylim(0,60)
+        axs.set_xticks(np.arange(0,n_mice))
+        axs.set_xticklabels([])
+        # axs.text(0.5,0.9,labels[bx],fontsize='x-small',color=colors[bx],verticalalignment='top',horizontalalignment='center',transform=axs.transAxes)
+        axs.legend(frameon=False)
+        
+        # axs.set_title('high performance periods',fontsize='medium')
+        axs.set_ylabel('number of trials\nin high perf. periods',fontsize='x-small')
+        axs.set_ylim(0,62)
+        axs.set_yticks([0,30,60])
+
+
+
+        # fraction correct
+        axs = axins[1]
+
+        axs.bar(x=np.arange(0,n_mice)-0.1666+bx/3,height=fractioncorrect[:,bx*2], width=0.3, color=colors[bx], alpha=0.7)
+        for n in range(n_mice):
+            axs.plot([ n-0.1666+bx/3-0.3/2, n-0.1666+bx/3+0.3/2], np.repeat(fractioncorrect_in[n,bx*2],2), color='red', ls='--', lw=2, label=['incong. nogo',None][n>0 or bx>0])
+
+        # axs.legend(frameon=False, loc='upper left')
+        
+        axs.set_ylabel('fraction correct\nin high perf. periods',fontsize='x-small')
+
+        axs.set_xticks(np.arange(0,n_mice))
+        axs.set_xticklabels([])
+        axs.set_ylim(0.5,1)
+        axs.set_yticks([0.5,1])
+
+
+
+
+
+
+
+
+    for ix in range(2):
+        axs = axins[ix]
         axs.spines['right'].set_visible(False)
         axs.spines['top'].set_visible(False)    
 
+
+
+
+
+
+    axins[1].set_xlabel('mice')
+
     x = datanames.index(dn_example_behavioursymmetryexploration)
-    axins[0].plot(x,58,'ko')
-
-
-    axs.set_xlabel('mice')
-
+    axins[1].plot(x,0.98,'ko')
 
 
 
@@ -1380,6 +1420,7 @@ def figure1():
         # fig.savefig(resultpath+'Fig1D,E_training,behaviordprime-horizontal'+ext)
         # fig.savefig(resultpath+'Fig1D,E_training,behaviordprime,extended.png')
         fig.savefig(resultpath+'Fig1D,E,F,G_training,behaviorcongruency,ma'+ext)
+
 
 
 

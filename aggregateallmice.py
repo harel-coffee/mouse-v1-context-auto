@@ -5767,6 +5767,8 @@ def aggregatemice_numberofhighlowperformancetrials(datanames):
     n_mice = len(datanames)
     print('Calculating number of high and low performance trials.')
     trialnumbers = np.zeros((n_mice,4))
+    fractioncorrect = np.zeros((n_mice,4))        # all
+    fractioncorrect_in = np.zeros((n_mice,4))     # incongruent nogos
     for n,dn in enumerate(datanames):
         print(n,dn)
         # load trials data
@@ -5792,12 +5794,25 @@ def aggregatemice_numberofhighlowperformancetrials(datanames):
                 mask_clevers.append(mask_clever)
         
         mask_clevers_list = [ np.vstack(mask_clevers_list[cx]).T for cx in [0,1]]
-        mask_clevers = np.vstack(mask_clevers).T
+        # mask_clevers = np.vstack(mask_clevers).T
 
 
-        mask_contextuals = [ np.prod(mask_clevers_list[cx],axis=1) for cx in [0,1] ]
+        mask_contextuals = [ np.prod(mask_clevers_list[cx],axis=1).astype(bool) for cx in [0,1] ]
         # display the number of trials that has above threshold movingaverage for all 4 combinations of congruenct and action
         trialslabel = '1st(%s):%d/%d, 2nd(%s):%d/%d'%(['V','A'][blv[1]==4],np.sum(mask_contextuals[0]), len(mask_contextuals[0]), ['A','V'][blv[1]==4], np.sum(mask_contextuals[1]), len(mask_contextuals[1]))
         trialnumbers[n,:] = np.array([np.sum(mask_contextuals[0]), len(mask_contextuals[0])-np.sum(mask_contextuals[0]), np.sum(mask_contextuals[1]), len(mask_contextuals[1])-np.sum(mask_contextuals[1]) ])
+        fractioncorrect[n,:] = np.array([np.mean(g['success'][g['block']==2][mask_contextuals[0]]), 1-np.mean(g['success'][g['block']==2][mask_contextuals[0]]),\
+                                         np.mean(g['success'][g['block']==4][mask_contextuals[1]]),1-np.mean(g['success'][g['block']==4][mask_contextuals[1]]) ])
+        fractioncorrect_in[n,:] = np.array([np.mean(g['success'][g['block']==2][mask_clevers_list[0][:,3]]), 1-np.mean(g['success'][g['block']==2][mask_clevers_list[0][:,3]]),\
+                                         np.mean(g['success'][g['block']==4][mask_clevers_list[1][:,3]]),1-np.mean(g['success'][g['block']==4][mask_clevers_list[1][:,3]]) ])
+
+
+        # for i in range(2):
+        #     for k in range(4):
+        #         m = np.mean(g['success'][g['block']==(i+1)*2][mask_clevers_list[i][:,k]])
+        #         print(i,k,m)
+
 
     pickle.dump(trialnumbers, open(cacheprefix+'behaviour/numtrials-n%d-highlowperformance'%n_mice,'wb'))
+    pickle.dump(fractioncorrect, open(cacheprefix+'behaviour/fraccorrect-n%d-highlowperformance'%n_mice,'wb'))
+    pickle.dump(fractioncorrect_in, open(cacheprefix+'behaviour/fraccorrect,in-n%d-highlowperformance'%n_mice,'wb'))
