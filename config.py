@@ -111,8 +111,10 @@ T['videofps'] = 20.
 # data storages
 
 # # pre 2022
-pathdatamouse = '../../../data/ucla/2018-2020,jrc+behav+training-mat,events-csv/'
-trialsfolder = 'trials-generated/'
+# pathdatamouse = '../../../data/ucla/2018-2020,jrc+behav+training-mat,events-csv/'
+pathdatamouse = '../cache/events/'
+# trialsfolder = 'trials-generated/'
+trialsfolder = ''
 pathdatamouse_ks2sorted = '../../../data/ucla/2018-2020,wigner,ks+phy/kilosort2/'
 pathdatamouse_ks3sorted = '../../../data/ucla/2018-2020,wigner,ks+phy/kilosort3/'
 

@@ -46,6 +46,7 @@ https://zenodo.org/record/7065334
 
 neural-events,cache.zip, unpack in the parent folder of the code:
 - cache/events/*.csv: behavioural event files in csv format
+- cache/events/trainingbehaviour/*.mat: training behavioural event files in mat cell format
 - cache/neo/*.nio: trial segmented spike counted neural activity, run speed
 - cache/phys/*.pck: spike times and info of single activity units in pickle list format
                     provided as a convenience (also available within .nio files):

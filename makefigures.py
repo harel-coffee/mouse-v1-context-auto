@@ -62,7 +62,7 @@ continuous_method = 'ks2ifr'        # kilosort2 spike sorting, with no drift
 # _____________
 # publications:
 conference = False
-resultpath = '../../../publish/journals/journal2020spring/figures/'
+resultpath = '../../../publish/journals/journal2020spring/figures/'  # change this to your desired figure output folder
 ext = '.pdf'
 ext = '.png'
 
