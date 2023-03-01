@@ -31,8 +31,8 @@ def select_data():
 
 
     # all behaviourally symmetric V1
-    # datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
-    # datanames = [['ME110','ME113','DT009'],['DT014','DT017','DT018'],['DT019','DT021','DT022','MT020_2']]
+    # datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
+    # datanames = [['ME110','ME113','DT009'],['DT014','DT017','DT021'],['DT022','MT020_2']]
 
     
     return datanames
@@ -56,6 +56,7 @@ def analysis(datanames, multiple=False):
         # full routines:
             
         # aggregatemice_numberofhighlowperformancetrials(datanames)
+        # aggregatemice_modelLLs(datanames)
 
         # aggregatemice_relevantirrelevant_behaviour(datanames)
         # aggregatemice_singletrialneuralbehaviour_relevantirrelevantcongruentconflicting(datanames)
@@ -157,6 +158,7 @@ def analysis(datanames, multiple=False):
             
 
             # preprocess.loadtrainingbehaviouraldata(dn, recalculate=True, plot=True)
+            # behaviour_symmetry_highperformance(dn)
             # behaviour_likelihood_simplemodels(dn)
             # behaviour_likelihood_idealobserver(dn)
             # behaviour_likelihood_idealobserver(dn, onlybehaviourma=True)             # just the behaviour plot, no likelihood needed

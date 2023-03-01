@@ -13,6 +13,8 @@ from numpy import bool8
 
 from quantities.quantity import _reconstruct_quantity
 from scipy.fft import next_fast_len
+from scipy.stats import bernoulli
+from scipy.optimize import minimize, Bounds
 from sqlalchemy import column
 from config import *
 
@@ -2664,7 +2666,9 @@ def behaviour_likelihood_simplemodels(dn):
 
 
 
-def behaviour_likelihood_idealobserver(dn, ma=20, full=True, multimodalonly=True, returnlikelihoodratio=False, returnbehaviourma=False, onlybehaviourma=False):
+def behaviour_likelihood_idealobserver(dn, ma=20, full=True, multimodalonly=True,
+                returnlikelihoodratio=False, returnincongruentlikelihood=False,
+                returnbehaviourma=False, onlybehaviourma=False):
     # print(dn,'behaviour moving average')
     doplot = 0 or globaldoplot
 
@@ -2793,7 +2797,11 @@ def behaviour_likelihood_idealobserver(dn, ma=20, full=True, multimodalonly=True
 
 
 
+    if returnincongruentlikelihood:
 
+
+
+        return
 
 
 
@@ -3083,6 +3091,239 @@ def behaviour_likelihood_sigmoidlinearmodels(dn):
 
 
 
+
+
+
+def behaviour_symmetry_highperformance(dn):
+
+
+    # get high performance and low performanc trial indices
+
+    g = preprocess.loadexperimentdata(dn)
+    g['block']+=1
+    g['success'] = g['punish']==False
+    blv,bla = preprocess.getorderattended(dn)
+
+    # apply behaviour masks
+    action = ['go','nogo']
+    congruency = ['congruent','incongruent']
+    mask_clevers_list = [[],[]] # holds context dependent list
+    mask_clevers = []           # holds indexed by original trial order
+    for c in congruency:
+        for a in action:
+            mask_clever_contexts = get_mask_cleverness(dn, ma_threshold=0.5, visualfirst=True, go=a, congruency=c)
+            for cx,mask_clever_context in enumerate(mask_clever_contexts):
+                mask_clevers_list[cx].append(mask_clever_context)
+            mask_clever = np.hstack( get_mask_cleverness(dn, ma_threshold=0.5, visualfirst=False, go=a, congruency=c) )
+            mask_clevers.append(mask_clever)
+    
+    mask_clevers_list = [ np.vstack(mask_clevers_list[cx]).T for cx in [0,1]]
+    mask_clevers = np.vstack(mask_clevers).T
+
+
+    mask_contextuals = [ np.prod(mask_clevers_list[cx],axis=1) for cx in [0,1] ]
+    # display the number of trials that has above threshold movingaverage for all 4 combinations of congruenct and action
+    print(dn, 'V:%d/%d, A:%d/%d'%(np.sum(mask_contextuals[0]), len(mask_contextuals[0]), np.sum(mask_contextuals[1]), len(mask_contextuals[1])))
+    mask_highperf = np.bool8(np.prod(mask_clevers, axis=1))
+
+
+
+
+
+
+
+
+
+    
+    # get congruency indices
+
+    g = preprocess.loadexperimentdata(dn,full=True,multimodalonly=True)
+    g['block']+=1
+    g['success'] = g['punish']==False
+    g['action'] = np.logical_not(np.logical_xor(g['water'], g['success']))
+    blv,bla = preprocess.getorderattended(dn)
+    # labels_contextorder = [ ['visual','audio'],['audio','visual'] ][bla[1]==2]        # only works for two context sets (one shift)
+
+    g = g[g['block'].isin([2,4])]      # use only the multimodal blocks
+    n_trials = len(g)
+    g['conditionedindex'] = np.arange(n_trials)
+    # index_contextchangepoint = g['block'].ne(2).values.argmax()          # get the splitpoint index between contexts relative within the selected mm blocks
+    index_contextchangepoint = np.where(np.abs(np.diff(g['block']))>0)[0]+1    # splitpoints list for more than a single context set shift
+    labels_contextorder = np.array(['visual','audio'])[ (g['block'].iloc[np.r_[0,index_contextchangepoint]]==bla[1]).values.astype(np.int16) ]
+    colors_contextorder = np.array(['navy','darkgreen'])[ (g['block'].iloc[np.r_[0,index_contextchangepoint]]==bla[1]).values.astype(np.int16) ]
+
+    congruent_mask = ((g['degree']==45) & (g['freq']==5000)) |  \
+           ((g['degree']==135) & (g['freq']==10000))
+    idx_congruent_go = g['conditionedindex'].loc[g[congruent_mask & (g['water']==True)].index].values
+    idx_congruent_nogo = g['conditionedindex'].loc[g[congruent_mask & (g['water']==False)].index].values
+    incongruent_mask = ((g['degree']==45) & (g['freq']==10000)) |  \
+           ((g['degree']==135) & (g['freq']==5000))
+    idx_incongruent_go = g['conditionedindex'].loc[g[incongruent_mask & (g['water']==True)].index].values
+    idx_incongruent_nogo = g['conditionedindex'].loc[g[incongruent_mask & (g['water']==False)].index].values
+
+
+
+
+    # assemble signals
+
+    key = [['freq','degree'],['degree','freq']][blv[1]==2]
+    valuego = [[5000,45],[45,5000]][blv[1]==2]
+    signals_contextual = np.concatenate([ g[g['block']==k][key[kx]]==valuego[kx] for kx,k in enumerate([2,4]) ]).astype(np.int16)
+    signals_visual = (g['degree']==45).values.astype(np.int16)
+    signals_audio = (g['freq']==5000).values.astype(np.int16)
+    
+    
+    # print(mask_clevers.shape, len(mask_contextuals), mask_highperf.shape, sum(mask_highperf))
+    # print(signals_contextual[mask_highperf].shape, signals_contextual[congruent_mask].shape)
+
+    # create mask for context (i.e. attend visual and attend audio, in this order)
+    mask_context = g['block'] == blv[1]
+
+
+    # assemble the data vector for two contexts using masks for context, congruency
+    # but only use high performance trials using "mask_highperf" variable
+    # and incongruency variations will be for cycled later
+
+    signal_crossparts = [signals_audio, signals_visual]
+    signals = [[[],[]],[[],[]]] # signals with two contexts and congruency variations
+    action = [[[],[]],[[],[]]]
+    meanresponses = np.zeros((2,2,3))
+    for cx in [0,1]:
+        for ix in [0,1]:
+            mask = (mask_context==1-cx) & (congruent_mask==1-ix) & mask_highperf
+            signals[cx][ix].append( signals_contextual[mask] )          # contextually correct
+            signals[cx][ix].append( signal_crossparts[cx][mask] )       # contextually opposite
+            action[cx][ix] = g['action'][mask]
+    
+
+
+
+
+    # calculate log likelihoods for each model, in each context and congruency variation
+
+    lowprob = 5e-2     # prevent exact 1s and 0s in probabilities
+
+
+    LLs = np.zeros((2,2,3,6))         # context, congruency, gonogoboth, model
+    for cx in [0,1]:
+        for ix in [0,1]:
+
+
+
+            for gx in [0,1,2]:
+                # create signal masks
+                if gx<2: # go and nogo signals
+                    sl = signals[cx][ix][0]==1-gx
+                else: # both together
+                    sl = np.tile(True,len(signals[cx][ix][0]))
+
+                choices = action[cx][ix][sl]
+                meanresponses[cx,ix,gx] = choices.mean()
+
+                # contextually correct:
+                data = signals[cx][ix][0][sl]
+                p = data * (1-2*lowprob) + lowprob
+                LLs[cx,ix,gx,0] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+
+                # contextually opposite:
+                data = signals[cx][ix][1][sl]
+                p = data * (1-2*lowprob) + lowprob
+                LLs[cx,ix,gx,1] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+
+
+                # lick bias:
+                p = meanresponses[cx,ix,gx]
+                p = np.clip(p,lowprob,1-lowprob)
+                LLs[cx,ix,gx,2] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+
+
+                # contextually correct with lick bias
+                data = signals[cx][ix][0][sl]      # contextually opposite, but it is already loaded
+                p = data * (1-2*lowprob) + lowprob     + meanresponses[cx,ix,gx]
+                p = np.clip(p,lowprob,1-lowprob)
+                LLs[cx,ix,gx,3] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+
+                # opposite with lick bias
+                data = signals[cx][ix][1][sl]      # contextually opposite, but it is already loaded
+                p = data * (1-2*lowprob) + lowprob     + meanresponses[cx,ix,gx]
+                p = np.clip(p,lowprob,1-lowprob)
+                LLs[cx,ix,gx,4] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+
+
+
+
+                # # caculate bernoulli log likelihood (LL) for choices at p-alpha, similar to other LLs below
+                # # minimize negative LL, and store the best LL, and the alpha value that gave it
+                # def mean_coupled_nll_f(params):
+                #     go =  choices * np.log(params[0])      # k = 0 values term will be 0, omitted
+                #     nogo = (1-choices) * np.log(1-params[0])   # symmetric! p is intentional here; k = 1 values term will be 0, omitted
+                #     mcll = (go + nogo).mean()    # mean coupled log likelihood
+                #     return -mcll
+
+                # results = minimize(mean_coupled_nll_f, [0.5], method='Nelder-Mead', bounds=Bounds(lb=0.,ub=1.))
+                # if gx==2: print("LL =",-results.fun, "    p =",results.x[0])
+
+
+
+
+    def modelLL_squeeze(k,p,alpha):
+        p_squeezed = p * (1-2*alpha) + alpha
+        ll = (     k * np.log(  p_squeezed  )   +   (1-k) * np.log( (1-p_squeezed) )     ).mean()
+        return ll
+
+
+    alpharange = np.arange(0.01,0.99,0.01)
+    LLc = np.zeros((2,2,len(alpharange)))         # context, congruency, p values
+    mLLc = np.zeros((2,2))         # context, congruency, LLs
+    mp = np.zeros((2,2))         # context, congruency, squeezed p parameter
+    for cx in [0,1]:
+        for ix in [0,1]:
+            for px,alpha in enumerate(alpharange):
+                choices = action[cx][ix]
+
+                # contextually correct:
+                data = signals[cx][ix][0]
+                p = data
+
+                LLc[cx,ix,px] = modelLL_squeeze(choices,p,alpha)
+
+            mLLci = np.argsort(LLc[cx,ix,:])[-1]
+            LLs[cx,ix,2,5] = LLc[cx,ix,mLLci]        # only solve for combined both go nogo (2), and 6th model (5)
+            mp[cx,ix] = 1*(1-2*alpharange[mLLci]) + alpharange[mLLci]
+
+    # make a plot alpharange vs LLc for each contexts and congruency variation
+    # with title dn
+
+    
+    if globaldoplot or 0:
+        fig,ax = plt.subplots(1,1,figsize=(1*8,1*8))
+        for cx in [0,1]:
+            for ix in [0,1]:
+                axs = ax
+                label = ['visual context','audio context'][cx]+[' congruent',' incongruent'][ix]
+                axs.plot(alpharange,LLc[cx,ix,:],['-','--'][ix], lw=2, color=['navy','darkgreen'][cx], label=label)
+                axs.scatter(meanresponses[cx,ix,2],LLs[cx,ix,2,2],
+                            s=100, color=['navy','darkgreen'][cx], marker=['o','x'][ix])
+                # axs.scatter(1-mp[cx,ix],mLLc[cx,ix],
+                #             s=100, color=['dodgerblue','lime'][cx], marker=['o','x'][ix])
+        
+        axs.scatter(1,1, s=100, color='black', marker='o', label='lick bias congruent')
+        axs.scatter(1,1, s=100, color='black', marker='X', label='lick bias incongruent')
+        axs.legend(fontsize=10)
+        axs.set_xlabel('$\\alpha$ (squeeze model), p (lick bias model)')
+        axs.set_ylabel('LL')
+        axs.set_ylim(-1.5,0)
+        axs.set_title(dn)
+
+        fig.tight_layout()
+
+        if globalsave or 0:
+            fig.savefig('choice-p,LL-%s'%dn+ext)
+
+
+
+
+    return LLs, meanresponses, mp
 
 
 

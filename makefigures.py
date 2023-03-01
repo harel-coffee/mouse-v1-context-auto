@@ -7,7 +7,6 @@ Created on Tue Jul  9 16:36:50 2019
 """
 
 
-from more_itertools import difference
 from sklearn.semi_supervised import LabelSpreading
 from run import *
 
@@ -39,6 +38,7 @@ import neo
 
 import neurophysiology as neph
 import neurodiscover as nedi
+import neurobayesian as neba
 
 import preprocess
 from physiology import getmovementpctimecourses          # movementpcslist dimensions are (trials,timecourse,pcs)
@@ -52,7 +52,7 @@ plt.rcParams.update({'lines.linewidth': 1})
 
 # info about figure absolute sizes and nice fonts: https://jwalton.info/Embed-Publication-Matplotlib-Latex/
 
-globalsave = 0
+globalsave = 1
 
 # continuous_method = 'instfr'      # JRC spike sorting
 continuous_method = 'ks2ifr'        # kilosort2 spike sorting, with no drift
@@ -62,9 +62,9 @@ continuous_method = 'ks2ifr'        # kilosort2 spike sorting, with no drift
 # _____________
 # publications:
 conference = False
-resultpath = '../../../publish/journals/journal2020spring/figures/'  # change this to your desired figure output folder
+resultpath = '../../../publish/journals/journal2020spring/figures/'
 ext = '.pdf'
-ext = '.png'
+# ext = '.png'
 
 # resultpathprefix = '../results_ks/'
 # resultpathseries = 'tribe/'
@@ -616,8 +616,7 @@ def statshelper():
     skip = 20
 
     # datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032','MT020_2']                 # with ks2 spike sorting 
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
-    # datanames = ['DT008','DT009']
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     n_mice = len(datanames)
 
 
@@ -708,7 +707,7 @@ def statshelper():
                     stats_matrix_celltypes[ct] = np.concatenate( (stats_matrix_celltypes[ct], local_stats_celltypes[ct]), axis=1)
         
         
-        # pickle.dump((trajectory_matrix,stats_matrix,stats_matrix_celltypes),open('../cache/phys/stats,trajectory_matrix-%s.pck'%(continuous_method),'wb'))
+        pickle.dump((trajectory_matrix,stats_matrix,stats_matrix_celltypes),open('../cache/phys/stats,trajectory_matrix-%s.pck'%(continuous_method),'wb'))
     
     else:
         trajectory_matrix,stats_matrix,stats_matrix_celltypes = pickle.load(open('../cache/phys/stats,trajectory_matrix-%s.pck'%(continuous_method),'rb'))
@@ -807,10 +806,10 @@ def figure1():
 
     # datanamesall = ['ME103', 'ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032','MT020_2']
     # datanamestrainings = ['ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']
-    datanamestrainings = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanamestrainings = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     # skipdict = {'ME110':['a03'],'MT020_2':['va28','va29','va30','va31','va32','va33','va34','va35','va36','va37','va38']}
     skipdict = {'ME110':['a03'],'MT020_2':['v01','v02','v03','v04']}
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
 
     dprimes_all = []
     L_max_sessiontypes = [0,0,0,0,0]
@@ -943,7 +942,7 @@ def figure1():
     # training history dprimes
     panel = 'D'
     colors = ['dodgerblue','olivedrab','navy','darkgreen']
-    taskcontextlabels = ['visual only','audio only','attend visual','attend audio']
+    taskcontextlabels = ['visual only','audio only','visual context','audio context']
     mincomplex = [9,1,0,0]   #[9,1,12+11,12]
     xc = 0
     xt = []
@@ -1035,7 +1034,6 @@ def figure1():
     panel = 'E'
 
     
-    # datanameslist = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032','MT020_2']
 
     taskaspects = ['gonogo-congruent,av','gonogo-conflict,av','gonogo-congruent,aa','gonogo-conflict,aa']
     colors = ['navy','navy','darkgreen','darkgreen']
@@ -1078,13 +1076,13 @@ def figure1():
                 print(pc)
                 pc.set_facecolor(colors[k])
                 pc.set_edgecolor(colorspercentiles[gx])
-                pc.set_alpha(0.2)
+                pc.set_alpha(0.4)
 
 
     axs.set_xticks([-0.5, 0.5, 3.5, 4.5,7.5, 8.5,11.5, 12.5])
     axs.set_xticklabels(['go','nogo','go','nogo','go','nogo','go','nogo'],rotation=45)
 
-    axs.set_title('attend visual                 attend audio\ncong         confl         cong       confl')
+    axs.set_title('visual context                 audio context\ncong         confl         cong       confl')
 
     axs.set_ylabel('fraction correct response')
 
@@ -1128,7 +1126,7 @@ def figure1():
     g['conditionedindex'] = np.arange(n_trials)
     # index_contextchangepoint = g['block'].ne(2).values.argmax()          # get the splitpoint index between contexts relative within the selected mm blocks
     index_contextchangepoint = np.where(np.abs(np.diff(g['block']))>0)[0]+1    # splitpoints list for more than a single context set shift
-    labels_contextorder = np.array(['attend\nvisual','attend\naudio'])[ (g['block'].iloc[np.r_[0,index_contextchangepoint]]==bla[1]).values.astype(np.int16) ]
+    labels_contextorder = np.array(['visual\ncontext','audio\ncontext'])[ (g['block'].iloc[np.r_[0,index_contextchangepoint]]==bla[1]).values.astype(np.int16) ]
     colors_contextorder = np.array(['navy','darkgreen'])[ (g['block'].iloc[np.r_[0,index_contextchangepoint]]==bla[1]).values.astype(np.int16) ]
 
     congruent_mask = ((g['degree']==45) & (g['freq']==5000)) |  \
@@ -1310,13 +1308,13 @@ def figure1():
     panel = 'G'
     axs = ax[1,1]
     axins = []
-    for l in range(2):
-        axins.append(axs.inset_axes([0, 0.5-0.5*l, 1, 0.45],transform=axs.transAxes))            # for two panels: [0, 0.5-0.5*l, 1, 0.45], for three panels: [0, 0.66666-0.33333*l, 1, 0.28]
+    for l in range(3):
+        axins.append(axs.inset_axes([0, 0.67-0.33*l, 1, 0.28],transform=axs.transAxes))            # for two panels: [0, 0.5-0.5*l, 1, 0.45], for three panels: [0, 0.66666-0.33333*l, 1, 0.28]
         axins[l].set_xticklabels([])
     axs.axis('off')
 
 
-    # datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    # datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     n_mice = len(datanames)
 
     trialnumbers = pickle.load(open(cacheprefix+'behaviour/numtrials-n%d-highlowperformance'%n_mice,'rb'))
@@ -1336,7 +1334,7 @@ def figure1():
     
 
     colors = ['navy','darkgreen']
-    labels = ['attend visual','attend audio']
+    labels = ['visual context','audio context']
 
 
     for bx in range(2):
@@ -1350,10 +1348,10 @@ def figure1():
         axs.set_xticks(np.arange(0,n_mice))
         axs.set_xticklabels([])
         # axs.text(0.5,0.9,labels[bx],fontsize='x-small',color=colors[bx],verticalalignment='top',horizontalalignment='center',transform=axs.transAxes)
-        axs.legend(frameon=False)
+        axs.legend(frameon=False, fontsize='x-small',loc='upper center')
         
         # axs.set_title('high performance periods',fontsize='medium')
-        axs.set_ylabel('number of trials\nin high perf. periods',fontsize='x-small')
+        axs.set_ylabel('num. trials',fontsize='x-small',labelpad=12)
         axs.set_ylim(0,62)
         axs.set_yticks([0,30,60])
 
@@ -1368,7 +1366,7 @@ def figure1():
 
         # axs.legend(frameon=False, loc='upper left')
         
-        axs.set_ylabel('fraction correct\nin high perf. periods',fontsize='x-small')
+        axs.set_ylabel('fraction correct',fontsize='x-small')
 
         axs.set_xticks(np.arange(0,n_mice))
         axs.set_xticklabels([])
@@ -1378,11 +1376,35 @@ def figure1():
 
 
 
+        axs = axins[2]
+        # LL is an (n_mice, context, congruency, gonogoboth, model{contextual,opposite,lickbias,contextual+lickbias,opposite+lickbias}) array
+        LL = pickle.load(open(cacheprefix+'behaviour/LL-strategies-highformance.pck','rb'))
+
+        labels_models = ['contextual no random','opposite','lick bias','contextual + lick bias','opposite+lickbias','contextual']
+        labellist = [['lick bias','visual context'],[None,'audio context']]
+        colors_models = ['purple','red','darkorange','seagreen','gold','fuchsia']
+        mouserange = np.arange(n_mice)
+        for mx,m in enumerate([2,5]):
+            axs.bar(x=mouserange+(bx-0.5)/3+(mx*0.12-0.06), height=LL[:,bx,1,2,m],
+                    color=colors[bx], alpha=0.2+0.8*mx, width=0.14)
+
+            # legend
+            wh = 0.15; hh = 0.1
+            axs.add_patch(plt.Rectangle((0+wh*bx,-0.9-hh*mx),wh,hh, ec=colors[bx], fc=colors[bx], alpha=0.2+mx*0.8))
+            if bx==1: axs.text(0+2*wh,-0.9-hh*mx+hh/2,[' context unaware',' context aware'][mx],fontsize='x-small',verticalalignment='center',horizontalalignment='left')
+
+        
+        
+            
+        axs.set_ylim(-1.05,0.05)
+        axs.set_xticks(np.arange(0,n_mice))
+        axs.set_xticklabels([])
+        axs.set_ylabel('model\nlog likelihood',fontsize='x-small',labelpad=6)
 
 
 
 
-    for ix in range(2):
+    for ix in range(3):
         axs = axins[ix]
         axs.spines['right'].set_visible(False)
         axs.spines['top'].set_visible(False)    
@@ -1392,10 +1414,10 @@ def figure1():
 
 
 
-    axins[1].set_xlabel('mice')
+    axins[2].set_xlabel('mice')
 
     x = datanames.index(dn_example_behavioursymmetryexploration)
-    axins[1].plot(x,0.98,'ko')
+    axins[2].plot(x,0.98,'ko')
 
 
 
@@ -1437,34 +1459,33 @@ def figure1():
 
 
 
-
 def figure2():
 
 
-    # raster    
-    dn = 'DT019'
-    block = preprocess.loaddatamouse(dn,T,continuous_method=continuous_method,normalize=False)        # use raw firing rates: normalize=False
-    n_neuron = block.segments[0].analogsignals[0].shape[1]
-    times = block.segments[0].analogsignals[0].times
+    # # raster    
+    # dn = 'MT020_2'
+    # block = preprocess.loaddatamouse(dn,T,continuous_method=continuous_method,normalize=False)        # use raw firing rates: normalize=False
+    # n_neuron = block.segments[0].analogsignals[0].shape[1]
+    # times = block.segments[0].analogsignals[0].times
     
-    taskaspects = ['visual','audio','context','choice']
-    blv,bla = preprocess.getorderattended(dn)
-    comparisongroups  = [ \
-                            [ [ [2,4],[45],    [] ], [ [2,4],[135],     [] ] ],\
-                            [ [ [2,4],  [],[5000] ], [ [2,4],   [],[10000] ]],\
-                            [ [  blv,  [],[] ],   [ bla,   [], [] ] ],\
-                            [ [] ]         ]
-
-
-
-        
+    # taskaspects = ['visual','audio','context','choice']
+    # blv,bla = preprocess.getorderattended(dn)
+    # comparisongroups  = [ \
+    #                         [ [ [2,4],[45],    [] ], [ [2,4],[135],     [] ] ],\
+    #                         [ [ [2,4],  [],[5000] ], [ [2,4],   [],[10000] ]],\
+    #                         [ [  blv,  [],[] ],   [ bla,   [], [] ] ],\
+    #                         [ [] ]         ]
 
 
 
 
-    
+
+
+
+
+
     # raster    
-    dn = 'DT019'
+    dn = 'MT020_2'
     block = preprocess.loaddatamouse(dn,T,continuous_method=continuous_method,normalize=False)        # use raw firing rates: normalzie=False
     n_neuron = block.segments[0].analogsignals[0].shape[1]
     times = block.segments[0].analogsignals[0].times
@@ -1540,7 +1561,7 @@ def figure2():
             trajectory_matrix[cx,4,:,cidx,0,0] =  np.array(acrossresponses[cidx])[:,:,:].mean(axis=(0,2))
             trajectory_matrix[cx,4,:,cidx,0,1] =  2*np.array(acrossresponses[cidx])[:,:,:].std(axis=(0,2))/\
                                     np.sqrt(len(acrossresponses[cidx])*acrossresponses[cidx][0].shape[1])
-    final_selection = np.array([0,0,0,0],dtype='int16')
+    final_selection = np.array([1,1,0,1],dtype='int16')
     scs = np.array([ selected_cell_ids[k,final_selection[k]] for k in range(4) ],dtype='int16')
     # selected cells (cell class 1-2 by taskaspects): 2, 1, 1, 2
     # ordered cell ids:
@@ -1603,7 +1624,7 @@ def figure2():
     fig = plt.figure(constrained_layout=False,figsize=(4*8,6.4*8))
     # grid spec will be:
     #   bulk:     top    left raster, right firing rates
-    #          bottom    TCA panels
+    #          bottom    PCA panels
     #   bulk dimensions:
     #                        4              6
     #                        10
@@ -1739,7 +1760,7 @@ def figure2():
             axs.spines['top'].set_visible(False)
             # axs.spines['bottom'].set_visible(False)
             if nx==0:
-                axs.legend(loc='upper right',frameon=False)#    [ 'response to '+classlabels[cx][i] for i in range(2) ],loc=(0.5,0.75) ,frameon=False)
+                axs.legend(loc='lower right',frameon=False)#    [ 'response to '+classlabels[cx][i] for i in range(2) ],loc=(0.5,0.75) ,frameon=False)
                 axs.set_title(comparison,pad=30)
             if nx==len(taskaspects)-1:
                 axs.set_xlabel('time [ms]')
@@ -1909,7 +1930,7 @@ def figure2():
         axs.legend(frameon=False,loc='upper right',fontsize='small')
         
         axs.set_xticks([1,10,20,31])
-        axs.set_yticks([0,0.05,0.1])
+        axs.set_yticks(np.arange(0,0.1,0.02))
         if cx==0:
             axs.set_ylabel('relative cumulative\nsignal strength')
         
@@ -1918,7 +1939,7 @@ def figure2():
         figs.invisibleaxes(axs)
 
         # axs.set_ylim(0,max_v*1.05)
-        axs.set_ylim(0,0.1)
+        axs.set_ylim(0,[0.04,0.04,0.08,0.04][cx])
 
 
     # show absolute as inset illustration
@@ -1926,7 +1947,7 @@ def figure2():
         if cx>0: continue
 
         # signal
-        axsignal_inset = axsignal[cx].inset_axes([0.3,0.4,0.6,0.3],transform=axsignal[cx].transAxes)
+        axsignal_inset = axsignal[cx].inset_axes([0.3,0.45,0.6,0.3],transform=axsignal[cx].transAxes)
         axsignal_inset.plot(np.arange(n_pc_display)+1, C_pc_signal_variance[cx,:n_pc_display,1].cumsum(), 'o-', color=variablecolors[cx])
         axsignal_inset.plot(n_pc_display, C_pc_signal_variance[cx,:n_pc_display,1].cumsum()[-1], 'o', markersize=10,color=variablecolors[cx])
         axsignal_inset.plot(n_pc_display, C_pc_signal_variance[cx,:n_pc_display,1].cumsum()[-1], 'o', markersize=8,color='white')
@@ -1946,12 +1967,12 @@ def figure2():
         axsignal_inset_total.tick_params(axis='y', labelcolor='red')
 
         for i in [0,1]:
-            axsignal_inset.text(0.05,1-i*0.15,['cum. signal var.','cum. total var.'][i],color=[variablecolors[cx],'red'][i],fontsize='small',
+            axsignal_inset.text(0.3,0.19-i*0.17,['cum. signal var.','cum. total var.'][i],color=[variablecolors[cx],'red'][i],fontsize='small',
                      transform=axsignal_inset.transAxes)
 
         axsignal_inset.set_xticks([1,10,20,31])
-        axsignal_inset.set_ylim(0,0.4)
-        axsignal_inset_total.set_ylim(0,40)
+        axsignal_inset.set_ylim(0,13)
+        axsignal_inset_total.set_ylim(0,2000)
 
         figs.invisibleaxes(axsignal_inset,which=['top'])
         figs.invisibleaxes(axsignal_inset_total,which=['top'])
@@ -1984,7 +2005,7 @@ def figure2():
 
     # display statistics for all mouse:
     print('signal variance attributable')
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     V = []
     for n,dnk in enumerate(datanames):
         v = []
@@ -2030,7 +2051,7 @@ def figure3():
     
     
     # A  decoders
-    dn = 'DT019'
+    dn = 'MT020_2'
     examine = 'allexpcond'
     comparison = 'visual'
     acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%(examine,'all',dn,continuous_method,comparison,'all'),'rb'))
@@ -2049,7 +2070,7 @@ def figure3():
     c_db = []
     for cx,comparison in enumerate(['visual','context']):
         acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
-        n_neuron = 31    # DT019
+        n_neuron = 44    # MT020_2
         wx = int((len(acrossdecoder)-7)/n_neuron)
         c_db.append(  np.reshape(np.array(acrossdecoder[7:]), (wx,n_neuron,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)    )
     c_db = np.array(c_db) # [comparisongroup,neurons,trajectory,stats]
@@ -2065,7 +2086,7 @@ def figure3():
     # datanames = ['ME108','ME110','ME112','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032'] # with JRC
     # datanames = ['ME108','ME110','ME112','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032'] # with ks2
     # datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']                 # with ks2 spike sorting 
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
 
     timegroups = []
     collect_stats_v = []
@@ -2090,19 +2111,20 @@ def figure3():
 
 
     # STATS section
-    # print('visual and context means and 2 sem')    
-    # print(timegroups.mean(axis=0))
-    # print(timegroups.std(axis=0)*2/np.sqrt(len(datanames)))
+    if 0: # print and leave
+        print('visual and context means and 2 sem')    
+        print(timegroups.mean(axis=0))
+        print(timegroups.std(axis=0)*2/np.sqrt(len(datanames)))
 
-    # collect_stats_m = np.array(collect_stats_v).mean(axis=0)
-    # collect_stats_sem = np.array(collect_stats_v).std(axis=0)*2/np.sqrt(len(datanames))
-    # print('visual mean total accuracy: %4.2f (%4.2f) +/- %4.2f (%4.2f)'%(collect_stats_m[0],collect_stats_sem[0],collect_stats_m[1],collect_stats_sem[1]))
-    # collect_stats_m = np.array(collect_stats_c).mean(axis=0)
-    # collect_stats_sem = np.array(collect_stats_c).std(axis=0)*2/np.sqrt(len(datanames))
-    # print('context mean total accuracy: %4.2f (%4.2f) +/- %4.2f (%4.2f)'%(collect_stats_m[0],collect_stats_sem[0],collect_stats_m[1],collect_stats_sem[1]))
-    # print('n animals %d'%len(datanames))
+        collect_stats_m = np.array(collect_stats_v).mean(axis=0)
+        collect_stats_sem = np.array(collect_stats_v).std(axis=0)*2/np.sqrt(len(datanames))
+        print('visual mean total accuracy: %4.2f (%4.2f) +/- %4.2f (%4.2f)'%(collect_stats_m[0],collect_stats_sem[0],collect_stats_m[1],collect_stats_sem[1]))
+        collect_stats_m = np.array(collect_stats_c).mean(axis=0)
+        collect_stats_sem = np.array(collect_stats_c).std(axis=0)*2/np.sqrt(len(datanames))
+        print('context mean total accuracy: %4.2f (%4.2f) +/- %4.2f (%4.2f)'%(collect_stats_m[0],collect_stats_sem[0],collect_stats_m[1],collect_stats_sem[1]))
+        print('n animals %d'%len(datanames))
 
-    # return
+        return
 
 
 
@@ -2146,7 +2168,7 @@ def figure3():
     # I,J        # subspace projections
     # datanamesefg = ['ME108','ME110','ME112','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']             # with JRC
     # datanamesefg = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032'] # with ks2
-    datanamesefg = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanamesefg = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     
     # old projections
 #     orthooderlabel = 'cxvich'
@@ -2316,7 +2338,7 @@ def figure3():
 
     # B,E    # decoder trajectories
     panels = ['B','E']
-    dn = 'DT019'
+    dn = 'MT020_2'
     for bx,vartimecourse in enumerate([visualtimecourse,contexttimecourse]):
     
         axs = ax[bx,1]
@@ -2435,7 +2457,7 @@ def figure3():
     # SUBSPACES
     panel = 'L'
     
-    n_showmice = datanamesefg.index('DT019')            # DT014 
+    n_showmice = datanamesefg.index('MT020_2')
     basisaspects = ['visual','context']
     basisaspectcolors = ['navy','mediumvioletred']   # np.array(taskcolors[0])[np.array([0,2,3],dtype=np.int16)]
     # basisaspectcolors = ['dodgerblue','fuchsia']   # np.array(taskcolors[0])[np.array([0,2,3],dtype=np.int16)]
@@ -2444,6 +2466,12 @@ def figure3():
     basis = basis_all[n_showmice]
     # ixgohit,ixnogocorrrej,ixgomiss,ixnogofal = perfidx_all[n_showmice]
 
+    # flip
+    cx = 1
+    for k in [0,1,2,3]:
+        projections[k][:,1] = -projections[k][:,1]
+    basis[1,cx] = -basis[1,cx]
+
 
     axs = ax[3,1]
 
@@ -2451,8 +2479,8 @@ def figure3():
     for k in [0,1,2,3]:
         axs.plot(projections[k][:,0], projections[k][:,1], 'o',color=activitycolors[k],alpha=0.8)
 
-    # basis vectors
-    x0 = -1.6
+    # basis vectors display start position
+    x0 = -3.4
     y0 = -2.0
     for bx,basisaspect in enumerate(basisaspects):
         # axs.plot([0,B[bx,0]],[0,B[bx,1]],lw=3,color=basisaspectcolors[bx])
@@ -2662,7 +2690,7 @@ def figure3():
 
 
 
-    dn_example_behavioursymmetryexploration = 'DT019'
+    dn_example_behavioursymmetryexploration = 'MT020_2'
 
     g = preprocess.loadexperimentdata(dn_example_behavioursymmetryexploration,full=True)
     g['block']+=1
@@ -2874,7 +2902,7 @@ def figure3():
     panel = 'I'
     axs = ax[2,2]
 
-    dn = 'DT019'
+    dn = 'MT020_2'
     accuracies,coefs,accuracyall,coefsall = pickle.load(open(cacheprefix+'symmetry/neural,context-equalized-symmetric,antisymmetric,cross-decoder-loo,boots,timecourse_%s.pck'%(dn), 'rb'))
     n_bootstrap = accuracies.shape[0]
 
@@ -2943,7 +2971,7 @@ def figure3():
     # show behaviourally symmetric mice having better performance on cognitive decodability
     panel = 'J'
     axs = ax[2,3]
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     n_mice = len(datanames)
     accuracylist = []
     accuracyalllist = []
@@ -3105,7 +3133,7 @@ def figure4():
     # datanames = ['ME108','ME110','ME112','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032'] # with JRC
     # datanames = ['ME108','ME110','ME112','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032'] # with ks2
     # datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']                 # with ks2 spike sorting 
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     n_mice = len(datanames)
 
 
@@ -3204,7 +3232,7 @@ def figure4():
         print(spix)
         v = fdr[:,0,spix[0]:spix[1],0].mean(axis=1)
         c = fdr[:,2,spix[0]:spix[1],0].mean(axis=1)
-        _,p = sp.stats.ttest_rel(v,c)
+        _,p = sp.stats.ttest_rel(v,c, alternative='less')
         print('n=%d, p=%4.4f'%(len(v),p))
         
         print('pre stimulus context')
@@ -3357,7 +3385,7 @@ def figure4():
     panel = 'B'
 
 
-    dn = 'DT019'    
+    dn = 'DT017'    
     n_cherry = datanames.index(dn)
     
     trainingpoints = np.array([-750,750])*pq.ms
@@ -3409,7 +3437,7 @@ def figure4():
     # 2D accuracy test matrices    
     panels = ['C','F']
 
-    dn = 'DT019'    
+    dn = 'DT017'    
     n_cherry = datanames.index(dn)
     
     taskaspects = ['visual','context']
@@ -3707,7 +3735,7 @@ def figure4():
     # M context nullspace recurrent deletion for all animals, mean acc remaining, M 1st subspace drop in context vs. drop between on and pre original
 
     panels = ['K','M']
-    dn = 'MT020_2'
+    dn = 'MT020_2'  # animal with contiunous context representation
     n = datanames.index(dn)
     ssids = [0,1]        # subspace code
     
@@ -3959,7 +3987,7 @@ def figure4():
 
 
     # show blockyness stats across all animals
-    print('all mice> pre: %5.3f+/-%5.3f sigma=%5.3f, post: %5.3f+/-%5.3f sigma=%5.3f, cross: %5.3f+/-%5.3f sigma=%5.3f'%(
+    print('all mice> pre: %5.3f+/-%5.3f sigma=%5.3f, on: %5.3f+/-%5.3f sigma=%5.3f, cross: %5.3f+/-%5.3f sigma=%5.3f'%(
              np.nanmean(np.array(c_pre_all)), np.nanstd(np.array(c_pre_all))/np.sqrt(n_mice), np.nanstd(np.array(c_pre_all)),
              np.nanmean(np.array(c_on_all)),np.nanstd(np.array(c_on_all))/np.sqrt(n_mice),np.nanstd(np.array(c_on_all)),
              np.nanmean(np.array(c_cross_all)),np.nanstd(np.array(c_cross_all))/np.sqrt(n_mice),np.nanstd(np.array(c_cross_all)) )
@@ -3980,7 +4008,7 @@ def figure4():
     # full space to nullspace
 
     # remove mice that have around random chance accuracy
-    removes = [7,2,1 ]     # need reverse order to preserve index absolute value
+    removes = [5,2,1]     # need reverse order to preserve index absolute value         # [ with ten: 7,2,1]
     ns = [ dn for dn in datanames ]
     for k in removes:
         x.pop(k)
@@ -4034,7 +4062,7 @@ def figure4():
     axs.set_yticks([0.5,0.6,0.7,0.8])
 
 
-    e1 = ns.index('DT019')
+    e1 = ns.index('DT014')
     e2 = ns.index('MT020_2')
 
     axs.plot(y[e1],nullspace[e1,0]+0.02,'<',markerfacecolor='black', markeredgecolor='black', markersize=6.18 )
@@ -4277,7 +4305,7 @@ def figure5():
 
 
     # datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']                 # with ks2 spike sorting 
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     n_mice = len(datanames)
 
 
@@ -4512,7 +4540,7 @@ def figure5():
         for v in violins['bodies']:  v.set_facecolor('navy'); v.set_edgecolor('navy'); v.set_alpha(0.6)
 
     M = np.array(M)
-    
+    print('t-test, mean over animals from 0',sp.stats.ttest_1samp(M[:,150:200,0].mean(axis=1),0))
     # axs.boxplot(positions=[n+2], x=np.vstack(M[:,150:200]), widths=[0.5], notch=False, whis=[5,95], showfliers=False)
     violins = axs.violinplot(positions=[n+2], dataset=np.vstack(M[:,150:200]), widths=[0.5], showmeans=True, showextrema=False, quantiles=None)
     for v in violins['bodies']:  v.set_facecolor('navy'); v.set_edgecolor('navy'); v.set_alpha(0.8)
@@ -4827,7 +4855,7 @@ def figure5():
     p = np.zeros((300,2))
     for aix in [0,1]:
         for t in range(300):
-            _,pl = sp.stats.ttest_ind(np.array(differences)[:,aix,0,t], np.array(differences_context)[:,aix,0,t]) 
+            _,pl = sp.stats.ttest_ind(np.array(differences)[:,aix,0,t], np.array(differences_context)[:,aix,0,t], alternative='less') 
             p[t,aix] = pl
     print('contextual difference, ttest 45> p=%4.8f, 135> p=%4.8f'%(p[:,0].mean(),p[:,1].mean()))
     # fig2,ax2 = plt.subplots(1,1)
@@ -4893,7 +4921,7 @@ def figure6():
     variablecolors = ['navy','darkorange']
     
     # A 
-    dn = 'DT019'
+    dn = 'DT017'
     examine = 'allexpcond'
     comparison = 'choice'
     acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%(examine,'all',dn,continuous_method,comparison,'all'),'rb'))
@@ -4904,7 +4932,7 @@ def figure6():
     examine = 'allexpcond'
     # datanames = ['ME108','ME110','ME112','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']                # JRC
     # datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']                 # with ks2 spike sorting
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
 
     # get baseline shuffle:
     n_resample = 10
@@ -5049,7 +5077,7 @@ def figure6():
 
     # behaviour conditioned visual discrimination in attend visual, for all mice
     # actvities_all = [n_mice][visualattend,context][performance][trials] = 15 x 2 x 4 x trials
-    activities_all,activities_aggregate = pickle.load(open('../cache/subspaces/dbnvprojections-visual,behaviourdifference-%s-%dms.pck'%(continuous_method,T['dt']),'rb'))
+    # activities_all,activities_aggregate = pickle.load(open('../cache/subspaces/dbnvprojections-visual,behaviourdifference-%s-%dms.pck'%(continuous_method,T['dt']),'rb'))
 
 
 
@@ -5175,22 +5203,22 @@ def figure6():
     # SUBSPACES for Context vs. Choice
     panel = 'C'
     
-    n_showmice = datanames.index('DT019')
+    n_showmice = datanames.index('DT017')
     basisaspects = ['context','choice']
     basisaspectcolors = ['mediumvioletred','gold']   # np.array(taskcolors[0])[np.array([0,2,3],dtype=np.int16)]
 
     projections = projections_all[n_showmice]
     basis = basis_all[n_showmice]
 
-    # flip: good only for DT019
-    for cx in [0,1]:
-        for k in [0,1,2,3]:
-            if len(projections[0][k])>0:
-                for i in [0,1]:
-                    projections[cx][k][:,i] = -projections[cx][k][:,i]
-        for bx in [0,1]:
-            for i in [0,1]:
-                basis[cx][i,bx] = -basis[cx][i,bx]
+    # flip: good only for DT017
+    # for cx in [1]:    # [0,1]
+    #     for k in [0,1,2,3]:
+    #         if len(projections[0][k])>0:
+    #             for i in [0,1]:
+    #                 projections[cx][k][:,i] = -projections[cx][k][:,i]
+    #     for bx in [1]: # [0,1]
+    #         for i in [0,1]:
+    #             basis[cx][i,bx] = -basis[cx][i,bx]
 
 
     for cx,comparison in enumerate(['attend visual','attend audio']):
@@ -5219,8 +5247,8 @@ def figure6():
     
     
         # basis vectors
-        x0 = -3.2
-        y0 = -2
+        x0 = -3.9
+        y0 = -2.1
         for bx,basisaspect in enumerate(basisaspects):
             # axs.plot([0,B[bx,0]],[0,B[bx,1]],lw=3,color=basisaspectcolors[bx])
             axs.plot([x0+0,x0+basis[cx][0,bx]],[y0+0,y0+basis[cx][1,bx]],lw=3,color=basisaspectcolors[bx])
@@ -5265,8 +5293,8 @@ def figure6():
         axs.spines['top'].set_visible(False)
 
         axs.axis('off')
-        axs.set_xlim(-3.3,3.3)
-        axs.set_ylim(-2.1,2.1)
+        axs.set_xlim(-4.0,4.0)
+        axs.set_ylim(-2.2,2.2)
         figs.plottoaxis_crosshair(axs)
 
 
@@ -5282,7 +5310,7 @@ def figure6():
             # ax_marginals[cx][0].hist(data,bins=np.arange(-2.4,+3.2+0.01,0.2),color=['orange','red'][kx],alpha=0.7)
     
             kde = sp.stats.gaussian_kde(data)
-            x = np.arange(-3.3,+3.3+0.01,0.02)
+            x = np.arange(-4,+4+0.01,0.02)
             ax_marginals[cx][0].plot(x,kde(x),color=['darkorange','firebrick'][kx],lw=2,alpha=0.7)
         # ax_marginals[cx][0].plot(x,np.zeros(len(x)),'k--',alpha=0.5)
         figs.plottoaxis_crosshair(ax_marginals[cx][0])
@@ -5935,7 +5963,7 @@ def figure7():
 def supplementaryfigure1():    # drift control
 
 
-    datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']                 # with ks2 spike sorting
+    datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT020','DT021','DT022','DT030','DT031','DT032']                 # with ks2 spike sorting
     n_mice = len(datanames)
     
     
@@ -6136,7 +6164,7 @@ def supplementaryfigure1():    # drift control
     
 
 
-    if 0:        # actual figure display
+    if 1:        # actual figure display
     
             panels = ['A','B','C','D']
             ind = [[0,0,1,1],[0,3,3,1]]
@@ -6209,10 +6237,12 @@ def supplementaryfigure1():    # drift control
 
 
 def supplementaryfigure2():
-    # show context decodable from broad spiking putative excitatory neurons only
-    datanames = ['DT017','DT018','DT019','ME110','ME113']
-    # datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022']
-    dn_ch = 'DT019'
+    # show context is decodable from broad spiking putative excitatory neurons only
+    # and 
+    # show context is decodable from narrow spiking putative excitatory neurons only
+    datanames = ['DT017','ME110','ME113','MT020_2']
+    # datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022']
+    dn_ch = 'ME110'
     n_cherry = datanames.index(dn_ch)
 
     # get baseline shuffle:
@@ -6375,11 +6405,10 @@ def supplementaryfigure3():
 
 
     # datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     
     n_mice = len(datanames)
-    # n_cherry = datanames.index('DT022')
-    dn_ch = 'DT018'
+    dn_ch = 'MT020_2'
     n_cherry = datanames.index(dn_ch)
 
     # get baseline shuffle:
@@ -6517,7 +6546,7 @@ def supplementaryfigure4():
     # number of neurons control
     
     # datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']                 # with ks2 spike sorting 
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     dn = 'DT014'
     singleanimalindex = datanames.index(dn)
     examine = 'allexpcond'
@@ -6618,9 +6647,9 @@ def supplementaryfigure4():
         yoffs = [0.52,0.52,-0.4][bx]
 #        if sx in [3,4,5,7]: xoffs = 25
         if l[3]<0.001:
-            axs.text(line[1]-xoffs,yoffs,'p<%5.3f, $\\rho$=%4.2f'%((0.001,l[2])),color=colors[bx])
+            axs.text(line[1]-xoffs,yoffs,'$\\rho$=%4.2f, p<%5.3f'%((l[2], 0.001)),color=colors[bx])
         else:
-            axs.text(line[1]-xoffs,yoffs,'p=%5.3f, $\\rho$=%4.2f'%((l[3],l[2])),color=colors[bx])
+            axs.text(line[1]-xoffs,yoffs,'$\\rho$=%4.2f, p=%5.3f'%((l[2],l[3])),color=colors[bx])
         
         
         
@@ -6657,188 +6686,13 @@ def supplementaryfigure4():
 
 
 
+
+
+
+
+
+
 def supplementaryfigure5():
-    # show that discrimination of visual stimuli decreases: project to dbnv
-
-    panels = ['A','B']
-
-    # datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']                 # with ks2 spike sorting 
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
-    n_mice = len(datanames)
-
-    # activities_all will be [n_mice][comparison][performance] = 15 x 4 x 4
-    activities_all,activities_aggregate = pickle.load(open('../cache/subspaces/dbnvprojections-visual,behaviourdifference-%s-%dms.pck'%(continuous_method,T['dt']),'rb'))
-
-    #        colors = ['navy','darkturquoise','darkred','fuchsia']
-    colors = ['b','c','m','r']
-    # basiscolors = ['navy','blue','dodgerblue','fuchsia','sienna','gold','darkorange']
-    # basisvectors = [0,1]      # indexes of dbprojections, dbprojections was:
-    labels = [\
-               ['attended visual dec. normal','attended visual choice',\
-                'attend visual,  45, hit','attend visual,  45, miss','attend visual, 135, corr.rej.','attend visual, 135, false alarm'], \
-               ['','',\
-                ' hit',' miss',' correct rejection',' false alarm'] \
-             ]
-
-
-    # plot each mouse separately
-    n_panels = int(np.ceil(np.sqrt(n_mice)))
-
-    cx = 0    # choose the context conditioned block (0), or context (1) for displaying projected activities
-    lx = 1     # labels for the conditions  0 visual        1 context
-
-
-    
-    dprimes = np.zeros((n_mice,2))   #    (n_mice x {45,135})
-    for n,dn in enumerate(datanames):
-        dprimes[n,:] = [ nedi.dprime_normal(activities_all[n][cx][0], activities_all[n][cx][1]),\
-                         nedi.dprime_normal(activities_all[n][cx][2], activities_all[n][cx][3]) ]
-
-
-    if 0:
-        fig,ax = plt.subplots(n_panels,n_panels,figsize=(12*n_panels,8*n_panels))
-        for n,dn in enumerate(datanames):
-            print(dn,'activity len',[len(activities_all[n][cx][i]) for i in [0,1,2,3]])
-    
-            # print(dn,'activity vector@ hmcf',activities_all[n][cx])
-    
-            # find significantly different mice with behaviour
-            s45,p45 = sp.stats.ttest_ind(activities_all[n][cx][0], activities_all[n][cx][1], equal_var=False)
-            s135,p135 = sp.stats.ttest_ind(activities_all[n][cx][2], activities_all[n][cx][3], equal_var=False)
-    
-            
-            axs = ax[int(np.floor(n/n_panels)),n%n_panels]
-            
-        
-            for k in [2,3]:            # range(len(activities_all[n][cx]))   # hit, miss, corr rej, false al
-                axs.hist(activities_all[n][cx][k],bins=10,color=colors[k],label=labels[lx][2+k],alpha=0.5)
-            # axs.set_xlim(-2,2)
-            axs.plot([0,0],[0,axs.get_ylim()[1]],'--',color='grey')
-            axs.legend(frameon=False)
-            # axs.set_title('%s; 45: p=%5.4f, 135: p=%5.4f'%(dn,p45,p135,))
-            axs.set_title('%s; p=%5.4f'%(dn,p135))
-    
-    
-        save = 0
-        if save:
-            fig.savefig(resultpath+'Supp3_visualdiscrimination,behaviourconditioned-singlemice_%s_%dms%dms'%(continuous_method,T['dt'].magnitude,T['bin'].magnitude)+ext)
-            
-            
-            
-    if 1:            
-        fig,ax = plt.subplots(1,2,figsize=(2*8,1*8))
-
-        # find out statistically if performance makes a difference in discrimination peaks
-        cx = 0    # only one projection
-        s45,p45 = sp.stats.ttest_ind(activities_aggregate[cx][0], activities_aggregate[cx][1], equal_var=False)
-        s135,p135 = sp.stats.ttest_ind(activities_aggregate[cx][2], activities_aggregate[cx][3], equal_var=False)
-        # s45,p45,s135,p135 = 0,0,0,0
-        print(p45,p135)
-    
-        # selection = np.abs(dprimes)<1
-        for d in [1]:       # separate 45 and 135 degrees
-            axs = ax[0]
-            for k in d*2+np.array([0,1]):
-                # print(k,'hmcf'[k]+':',len(activities_aggregate[cx][k]))
-                axs.hist(activities_aggregate[cx][k],bins=20,color=colors[k],label=labels[lx][2+k],alpha=0.5)
-                m = np.mean(activities_aggregate[cx][k])
-                e = 2*np.std(activities_aggregate[cx][k])/np.sqrt(len(activities_aggregate[cx][k]))
-                axs.plot([m,m],[0,48],lw=3,color=colors[k])
-                axs.plot([m-e,m+e],[10,10],lw=7,color=colors[k])
-            axs.set_xlim(-3,3)
-            axs.set_ylim(0,60)
-            axs.plot([0,0],[0,axs.get_ylim()[1]],'--',color='grey')
-            axs.legend(frameon=False)
-            # axs.set_title('%d mice; %d: p=%5.4f'%(n_mice,[45,135][d],(p45,p135)[d]))
-            axs.text(1,10,'p=%.2e'%((p45,p135)[d]))
-        
-            # axs = ax[1]
-            # axs.hist( dprimes[:,d], color=colors[2*d], bins=5, label=['45 hit-miss','135 corr.rej.-fal.al.'][d], alpha=0.5 )
-        axs.legend(frameon=False,fontsize='small')
-        axs.set_xlabel('activity projected\nonto visual DV')
-        axs.set_ylabel('number of trials')
-        
-        figs.labelaxis(axs,panels[0])
-
-        
-        
-        axs = ax[1]
-        
-        for n,dn in enumerate(datanames):
-            s135,p135 = sp.stats.ttest_ind(activities_all[n][cx][2], activities_all[n][cx][3], equal_var=False)
-            m = [activities_all[n][cx][2].mean(),activities_all[n][cx][3].mean()]
-            e = [activities_all[n][cx][2].std()*2/np.sqrt(len(activities_all[n][cx][2])),\
-                 activities_all[n][cx][3].std()*2/np.sqrt(len(activities_all[n][cx][3]))]
-            
-            if p135>0.05:
-                if m[0]<m[1]: color = 'green'
-                elif m[0]>m[1]: color = 'red'
-            else: color = 'grey'
-
-            print(m,e)    
-            axs.errorbar( np.array([0,1])+n*0.001, m, e, color=color, lw=2 )
-
-        axs.set_xlim(-0.1,1.1)
-
-        figs.plottoaxis_crosshair(axs,0)
-
-        axs.set_xticks([0,1]); axs.set_xticklabels(['correct\nrejection','false\nalarm'])
-        axs.set_yticks(np.arange(-3,3.1))
-        axs.set_ylabel('# of trials')
-        axs.set_ylabel('activity projected\nonto visual DV')
-
-        figs.labelaxis(axs,panels[1])
-        
-        
-        # for k in [0,1]:
-        #     x = dprimes[:,k]
-        #     y = behavfrac[:,k]
-
-        #     axs.scatter(x,y,marker='o',s=150,color=colors[2*k],alpha=0.8,label=['hit/45','corr.rej./135'][k])
-        #     # for n,dn in enumerate(datanames):
-        #     #     axs.text(x,y,dn,fontsize='x-small',color=colors[2*k],alpha=0.3)
-    
-    
-        #     l = sp.stats.linregress(x,y)
-        #     print(k,l)
-        #     if l[3]<0.05:
-        #         line = np.linspace(start=x.min()*0.8,stop=x.max()*1.2,num=2)
-        #         axs.plot(line,l[0]*line+l[1],color=colors[2*k],linewidth=2)
-        #     else:
-        #         line = np.linspace(start=x.min()*0.8,stop=x.max()*1.2,num=2)
-        #         axs.plot(line,l[0]*line+l[1],'--',color=colors[2*k],linewidth=2)
-                
-        #     xoffs = 1
-        # #        if sx in [3,4,5,7]: xoffs = 25
-        #     if l[3]<0.05:
-        #         axs.text(line[1]-xoffs,0.47+k*0.1,'p<%5.3f, $\\rho$=%4.2f'%((0.001,l[2])),color=colors[2*k])
-        #     else:
-        #         axs.text(line[1]-xoffs,0.47+k*0.1,'p=%5.3f, $\\rho$=%4.2f'%((l[3],l[2])),color=colors[2*k])
-        
-        # axs.legend(frameon=False)
-        # axs.set_xlabel('signed d-prime')
-        # axs.set_ylabel('behaviour success')
-        
-        # fig.suptitle(taskaspects[dbprojections[0]])
-        
-        fig.tight_layout()
-        
-        save = 0 or globalsave
-        if save:
-            fig.savefig(resultpath+'Supp5_visualdiscrimination,behaviourconditioned-singlemice'+ext)
-
-
-
-
-
-
-
-
-
-
-
-
-def supplementaryfigure6():
     # show audio decoding
     # show audio relation to context
     # show visual and audio relation to choice
@@ -6847,9 +6701,11 @@ def supplementaryfigure6():
 
 
     
-    
+    singleanimal = 'DT022'
+    n_singleneuron = 17
+
     # A  decoders
-    dn = 'DT019'
+    dn = singleanimal
     examine = 'allexpcond'
     comparison = 'audio'
     acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%(examine,'all',dn,continuous_method,comparison,'all'),'rb'))
@@ -6868,7 +6724,7 @@ def supplementaryfigure6():
     c_db = []
     for cx,comparison in enumerate(['audio','context']):
         acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
-        n_neuron = 31    # DT019
+        n_neuron = n_singleneuron
         wx = int((len(acrossdecoder)-7)/n_neuron)
         c_db.append(  np.reshape(np.array(acrossdecoder[7:]), (wx,n_neuron,acrossdecoder[7].shape[0],acrossdecoder[7].shape[1]) ).mean(axis=0)    )
     c_db = np.array(c_db) # [comparisongroup,neurons,trajectory,stats]
@@ -6881,7 +6737,7 @@ def supplementaryfigure6():
     
     # B,C, Fx, Gx +behav x axis
     examine = 'allexpcond'
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
 
     timegroups = []
     collect_stats_v = []
@@ -6912,7 +6768,7 @@ def supplementaryfigure6():
     # I,J        # subspace projections
     # datanamesefg = ['ME108','ME110','ME112','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']             # with JRC
     # datanamesefg = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032'] # with ks2
-    datanamesefg = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+    datanamesefg = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     
     
         
@@ -7041,7 +6897,7 @@ def supplementaryfigure6():
 
     # decoder trajectories
     panel = 'A'
-    dn = 'DT019'
+    dn = singleanimal
     for bx,vartimecourse in enumerate([visualtimecourse]):
     
         axs = ax[bx,0]
@@ -7105,13 +6961,13 @@ def supplementaryfigure6():
     for cx,comparison in enumerate(['audio','context']):
         axs = ax[0,2+cx]
         axs.barh(y=(np.arange(n_neuron)+1),width=c_db_means[cx,c_db_order,0],color=variablecolors[cx] )
-        axs.set_yticks([1,10,20,31])
+        axs.set_yticks([1,10,20])
         # axs.invert_yaxis()
         axs.set_xlim(-0.5,0.5)
         axs.set_xticks([-0.5,0.5])
         # axs.set_xticklabels([classnames[cx][0],'',classnames[cx][1]])
-        axs.text(-0.4,25,classnames[cx][0])
-        axs.text( 0.3,25,classnames[cx][1])
+        axs.text(-0.4,12,classnames[cx][0])
+        axs.text( 0.3,12,classnames[cx][1])
 
         axs.set_xlabel('neuron weights [SU]',labelpad=-10)
         axs.set_ylabel('neuron id, audio-ordered')
@@ -7137,7 +6993,7 @@ def supplementaryfigure6():
     # SUBSPACES
     panel = 'E'
     
-    n_showmice = datanamesefg.index('DT019')            # DT014 
+    n_showmice = datanamesefg.index(singleanimal)
     basisaspects = ['audio','context']
     basisaspectcolors = ['darkgreen','mediumvioletred']   # np.array(taskcolors[0])[np.array([0,2,3],dtype=np.int16)]
     # basisaspectcolors = ['dodgerblue','fuchsia']   # np.array(taskcolors[0])[np.array([0,2,3],dtype=np.int16)]
@@ -7383,6 +7239,7 @@ def supplementaryfigure6():
         for v in violins['bodies']:  v.set_facecolor('darkgreen'); v.set_edgecolor('darkgreen'); v.set_alpha(0.6)
 
     M = np.array(M)
+    print('stats no diff from 0', sp.stats.ttest_1samp(M[:,150:200].mean(axis=1),0))
     
     # axs.boxplot(positions=[n+2], x=np.vstack(M[:,150:200]), widths=[0.5], notch=False, whis=[5,95], showfliers=False)
     violins = axs.violinplot(positions=[n+2], dataset=np.vstack(M[:,150:200]), widths=[0.5], showmeans=True, showextrema=False, quantiles=None)
@@ -7417,7 +7274,7 @@ def supplementaryfigure6():
 
     save = 0 or globalsave
     if save:
-        fig.savefig(resultpath+'Supp6_audio,context,orthogonal-visual+audio,choice,nonorthogonal'+ext)
+        fig.savefig(resultpath+'Supp5_audio,context,orthogonal-visual+audio,choice,nonorthogonal'+ext)
 
 
 
@@ -7453,7 +7310,7 @@ def supplementaryfigure6():
 
 
 
-def supplementaryfigure7():
+def supplementaryfigure6():
     # show stimulus to choice relationship
 
     # top row subspaces, bottom row angles between stimulus and choice DVs
@@ -7501,7 +7358,7 @@ def supplementaryfigure7():
         
 
         examine = 'allexpcond'
-        datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
+        datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
 
         # get baseline shuffle:
         n_resample = 10
@@ -7837,7 +7694,7 @@ def supplementaryfigure7():
     
     save = 0 or globalsave
     if save:
-        fig.savefig(resultpath+'Supp7_visual,audio+choice'+ext)
+        fig.savefig(resultpath+'Supp6_visual,audio+choice'+ext)
 
 
 
@@ -7886,10 +7743,9 @@ def main():
     supplementaryfigure2()    # show that without VIP interneurons, context is still decodable in PV cells only
     supplementaryfigure3()    # show that decoding from visual DV and motion VV, contextual information is limited.
     supplementaryfigure4()    # control for number of neurons
-    supplementaryfigure5()    # visual discrimination is dependent on animal performance
-    supplementaryfigure6()    # audio
-    supplementaryfigure7()    # choice to stimuli
-    # supplementaryfigure8()    # video movement thresholds; this is output from the Julia video code
+    supplementaryfigure5()    # audio
+    supplementaryfigure6()    # choice to stimuli
+    # supplementaryfigure7()    # video movement thresholds; this is output from Julia
 
 
 

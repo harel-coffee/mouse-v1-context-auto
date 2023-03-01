@@ -5792,7 +5792,7 @@ def aggregatemice_numberofhighlowperformancetrials(datanames):
                     mask_clevers_list[cx].append(mask_clever_context)
                 mask_clever = np.hstack( get_mask_cleverness(dn, ma=ma, ma_threshold=ma_th, visualfirst=False, go=a, congruency=c) )
                 mask_clevers.append(mask_clever)
-        
+
         mask_clevers_list = [ np.vstack(mask_clevers_list[cx]).T for cx in [0,1]]
         # mask_clevers = np.vstack(mask_clevers).T
 
@@ -5816,3 +5816,154 @@ def aggregatemice_numberofhighlowperformancetrials(datanames):
     pickle.dump(trialnumbers, open(cacheprefix+'behaviour/numtrials-n%d-highlowperformance'%n_mice,'wb'))
     pickle.dump(fractioncorrect, open(cacheprefix+'behaviour/fraccorrect-n%d-highlowperformance'%n_mice,'wb'))
     pickle.dump(fractioncorrect_in, open(cacheprefix+'behaviour/fraccorrect,in-n%d-highlowperformance'%n_mice,'wb'))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def aggregatemice_modelLLs(datanames, onlyboth=True):
+    from physiology import behaviour_symmetry_highperformance
+    n_mice = len(datanames)
+
+    LL = np.zeros((n_mice,2,2,3,6))  # n_mice, context, congruency, gonogoboth, model
+    meanresponses = np.zeros((n_mice,2,2,3))
+    mp = np.zeros((n_mice,2,2)) # n_mice, context, congruency
+    for dx,dn in enumerate(datanames):
+        LL[dx,:,:,:,:], meanresponses[dx,:,:,:], mp[dx,:,:] = behaviour_symmetry_highperformance(dn)
+
+    
+    pickle.dump(LL, open(cacheprefix+'behaviour/LL-strategies-highformance.pck','wb'))
+    
+
+    # plot LLs (log likelihoods of models)
+    # make a subplot for each context and congruency
+    # and plot a barplot for each model
+    # as a mean and errorbars between mice
+
+
+
+    # plot constants
+    labels_contexts = ['visual','auditory']
+    labels_congruency = ['congruent','incongruent']
+    labels_models = [ 'contextual','opposite','lick bias','contextual w/lick bias','opposite w/lick bias','squeezed contextual']
+    colors_models = ['purple','red','darkorange','seagreen','gold','fuchsia']
+
+
+    # plot mean and all individual mouse
+
+    LLm = np.mean(LL,axis=0)
+    LLe = np.std(LL,axis=0)/np.sqrt(n_mice)
+
+    n_models = LL.shape[4]
+
+
+    if globaldoplot or 0:
+            
+
+        fig,ax = plt.subplots(1+n_mice,2+4,figsize=((4+2)*6,(n_mice+2)*6),sharex=True,sharey=True)
+
+
+        # overal marginal over mice and congruency context etc.
+        axs = ax[0,0]
+        for i in range(n_models):
+            axs.bar(x=[i-0.33,i,i+0.33], height=LLm.mean(axis=(0,1))[:,i], yerr=LLe.sum(axis=(0,1))[:,i], color=colors_models[i], alpha=1,
+                    width=0.8/3, label=labels_models[i], hatch=[None,None,'.'] )
+        axs.legend(frameon=False)
+        axs.set_title('mean total')
+        axs.set_ylabel('LL')
+        axs.set_ylim(-1.5,0)
+
+        # incongruent only overal marginal over mice and context etc.
+        axs = ax[0,1]
+        for i in range(n_models):
+            axs.bar(x=[i-0.33,i,i+0.33], height=LLm[:,1::2,:,:].mean(axis=(0,1))[:,i], yerr=LLe[:,1::2,:,:].sum(axis=(0,1))[:,i],
+                    width=0.8/3, color=colors_models[i], hatch=[None,None,'.'])
+        axs.set_title('mean incongruent total')
+        
+
+
+        # marginal over congruency context etc. for each mouse, and then only for incongruents
+        for n in range(n_mice):
+            axs = ax[n+1,0]
+            for i in range(n_models):
+                axs.bar(x=[i-0.33,i,i+0.33],height=LL[n,:,:,:,:].mean(axis=(0,1))[:,i],
+                        width=0.8/3, color=colors_models[i], alpha=0.8, hatch=[None,None,'.'])
+                axs.set_title(datanames[n])
+
+            if n==n_mice: axs.set_xlabel('models')
+
+            axs = ax[n+1,1]
+            for i in range(n_models):
+                axs.bar(x=[i-0.33,i,i+0.33],height=LL[n,:,1::2,:,:].mean(axis=(0,1))[:,i],
+                        width=0.8/3, color=colors_models[i], alpha=0.8, hatch=[None,None,'.'])
+
+            if n==n_mice: axs.set_xlabel('models')
+
+
+
+
+        # plot each context and congruency individually for all mice averaged, and all mice separately
+        for cx in [0,1]:
+            for ix in [0,1]:
+
+                axs = ax[0,cx*2+ix+2]
+                for i in range(n_models):
+                    axs.bar(x=[i-0.33,i,i+0.33],height=LLm[cx,ix,:,i], yerr=LLe[cx,ix,:,i],
+                            width=0.8/3, color=colors_models[i], hatch=[None,None,'.'])
+                axs.set_title('%s %s'%(labels_contexts[cx],labels_congruency[ix]))
+
+
+                for n in range(n_mice):
+                    axs = ax[n+1,cx*2+ix+2]
+                    for i in range(n_models):
+                        axs.bar(x=[i-0.33,i,i+0.33],height=LL[n,cx,ix,:,i],
+                                width=0.8/3, color=colors_models[i], alpha=0.5, hatch=[None,None,'.'])
+
+                        # annotate lick bias:
+                        for gx in [0,1,2]: axs.text([1.67,2,2.33][gx],LL[n,cx,ix,gx,2], '%4.2f'%meanresponses[n,cx,ix,gx],
+                                                    verticalalignment='top',horizontalalignment='center', fontsize=8)
+                        # annotate squeezed contextual:
+                        axs.text(5.33,LL[n,cx,ix,2,5], '%4.2f'%mp[n,cx,ix], verticalalignment='top',horizontalalignment='center', fontsize=8)
+                    if cx==0 and ix==0: axs.set_title(datanames[n])
+
+                    if n==n_mice: axs.set_xlabel('models')
+
+
+        # fig.plot_title('model LLs over mice n=%d'%n_mice)
+
+        if globalsave or 0:
+            # fig.savefig(resultpath+'tribe-modelLLs-highperformance'+ext)
+            fig.savefig('tribe-modelLLs-highperformance'+ext)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
