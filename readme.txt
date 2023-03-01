@@ -41,8 +41,8 @@ https://neo.readthedocs.io/en/stable/install.html
 
 
 Download data from the accompanying repository:
-doi://10.5281/zenodo.7065334
-https://zenodo.org/record/7065334
+doi://10.5281/zenodo.7689204
+https://zenodo.org/record/7689204
 
 neural-events,cache.zip, unpack in the parent folder of the code:
 - cache/events/*.csv: behavioural event files in csv format
