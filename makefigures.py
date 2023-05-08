@@ -64,7 +64,7 @@ continuous_method = 'ks2ifr'        # kilosort2 spike sorting, with no drift
 conference = False
 resultpath = '../../../publish/journals/journal2020spring/figures/'
 ext = '.pdf'
-# ext = '.png'
+ext = '.png'
 
 # resultpathprefix = '../results_ks/'
 # resultpathseries = 'tribe/'
@@ -1313,7 +1313,7 @@ def figure1():
     axsign.axis('off')
     axsign.add_patch(plt.Rectangle((0,0.25),1,0.4,\
         ec='rebeccapurple',fc='rebeccapurple',transform=axsign.transAxes))
-    axs.text(-1,0.36,'high\nperformance',transform=axsign.transAxes, horizontalalignment='right',verticalalignment='center',fontsize='x-small')
+    axs.text(-1,0.36,'consistent\nperformance',transform=axsign.transAxes, horizontalalignment='right',verticalalignment='center',fontsize='x-small')
     
 
 
@@ -1333,11 +1333,12 @@ def figure1():
 
 
     # show remaining trials (the order of panels is intentionally exchanged, as we need the same order of mice)
-    panel = 'G'
+    panels = ['G','H','I','J']
+
     axs = ax[1,1]
     axins = []
-    for l in range(3):
-        axins.append(axs.inset_axes([0, 0.67-0.33*l, 1, 0.28],transform=axs.transAxes))            # for two panels: [0, 0.5-0.5*l, 1, 0.45], for three panels: [0, 0.66666-0.33333*l, 1, 0.28]
+    for l in range(4):
+        axins.append(axs.inset_axes([0, 0.75-0.25*l, 1, 0.215],transform=axs.transAxes))            # for two panels: [0, 0.5-0.5*l, 1, 0.45], for three panels: [0, 0.66666-0.33333*l, 1, 0.28], for four panels: [0, 0.75-0.25*l, 1, 0.24]
         axins[l].set_xticklabels([])
     axs.axis('off')
 
@@ -1349,6 +1350,9 @@ def figure1():
     print(trialnumbers)
     fractioncorrect = pickle.load(open(cacheprefix+'behaviour/fraccorrect-n%d-highlowperformance'%n_mice,'rb'))
     fractioncorrect_in = pickle.load(open(cacheprefix+'behaviour/fraccorrect,in-n%d-highlowperformance'%n_mice,'rb'))
+    fractioncorrect_gonogo = pickle.load(open(cacheprefix+'behaviour/fraccorrect,gonogo+in-n%d-highlowperformance'%n_mice,'rb'))
+    print('bias = fc_go - fc_nogo: (mice, context)')
+    print(fractioncorrect_gonogo[:,::2,0]-fractioncorrect_gonogo[:,::2,1])
 
     # reorder contexts, so that visual is always first for display purposes
     contextorders = np.zeros(n_mice, dtype=np.int16)
@@ -1365,13 +1369,30 @@ def figure1():
     labels = ['visual context','audio context']
 
 
+
+    # LL maximum loglikelihood is an (n_mice, relevancy, context, congruency, models) array
+    # mp maximum LL parameter is an  (n_mice, relevancy, context, congruency, models) array, +1 "model" for both parameters in the last model
+    # models range: meanbias,contextual,contextual+meanbias,contextual+bias,contextual+lapse,contextual+bias+lapse
+    LL,mp = pickle.load(open(cacheprefix+'behaviour/LL-strategies-highformance.pck','rb'))
+    
+
+    # print p and alpha stats for incongruent trials over mice
+    print('context aware bias+lapse model, relevant, incongruent, beta bias and lambda lapse parameter')
+    for k in [3,4,5]:
+        print(['bias','lapse','bias+lapse'][k-3])
+        print('beta   = ',mp[:,0,:,1,k,0].mean(axis=(0)), mp[:,0,:,1,k,0].std(axis=(0))/np.sqrt(n_mice))
+        print('lambda = ',mp[:,0,:,1,k,1].mean(axis=(0)), mp[:,0,:,1,k,1].std(axis=(0))/np.sqrt(n_mice))
+
+
+
+
     for bx in range(2):
 
-        # nyumber of available trials
+        # number of available trials
         # axs.bar(x=np.arange(0,4*n_mice,4)+bx*0.75-2,height=trialnumbers[:,bx], color=colors[bx])
         axs = axins[0]
 
-        axs.bar(x=np.arange(0,n_mice)-0.1666+bx/3,height=trialnumbers[:,bx*2], width=0.3,color=colors[bx],label=labels[bx])
+        axs.bar(x=np.arange(0,n_mice)+(bx-0.5)/3,height=trialnumbers[:,bx*2], width=0.3,color=colors[bx],label=labels[bx])
     
         axs.set_xticks(np.arange(0,n_mice))
         axs.set_xticklabels([])
@@ -1379,60 +1400,122 @@ def figure1():
         axs.legend(frameon=False, fontsize='x-small',loc='upper center')
         
         # axs.set_title('high performance periods',fontsize='medium')
-        axs.set_ylabel('num. trials',fontsize='x-small',labelpad=12)
+        axs.set_ylabel('num.\ntrials',fontsize='x-small',labelpad=12)
         axs.set_ylim(0,62)
         axs.set_yticks([0,30,60])
+        axs.set_yticklabels([0,30,60],fontsize='x-small')
+        axs.set_xlim(-0.6,n_mice-0.4)
 
 
 
         # fraction correct
         axs = axins[1]
 
-        axs.bar(x=np.arange(0,n_mice)-0.1666+bx/3,height=fractioncorrect[:,bx*2], width=0.3, color=colors[bx], alpha=0.7)
+        axs.bar(x=np.arange(0,n_mice)+(bx-0.5)/3,height=fractioncorrect[:,bx*2], width=0.3, color=colors[bx], alpha=0.7)
         for n in range(n_mice):
-            axs.plot([ n-0.1666+bx/3-0.3/2, n-0.1666+bx/3+0.3/2], np.repeat(fractioncorrect_in[n,bx*2],2), color='red', ls='--', lw=2, label=['incong. nogo',None][n>0 or bx>0])
+            axs.plot([ n+(bx-0.5)/3-0.3/2, n+(bx-0.5)/3+0.3/2], np.repeat(fractioncorrect_in[n,bx*2],2), color='red', ls='--', lw=2, label=['incong. nogo',None][n>0 or bx>0])
 
         # axs.legend(frameon=False, loc='upper left')
         
-        axs.set_ylabel('fraction correct',fontsize='x-small')
+        axs.set_ylabel('fraction\ncorrect',fontsize='x-small')
 
         axs.set_xticks(np.arange(0,n_mice))
         axs.set_xticklabels([])
         axs.set_ylim(0.5,1)
         axs.set_yticks([0.5,1])
+        axs.set_yticklabels([0.5,1],fontsize='x-small')
+        axs.set_xlim(-0.6,n_mice-0.4)
 
 
 
 
-        axs = axins[2]
-        # LL is an (n_mice, context, congruency, gonogoboth, model{contextual,opposite,lickbias,contextual+lickbias,opposite+lickbias}) array
-        LL = pickle.load(open(cacheprefix+'behaviour/LL-strategies-highformance.pck','rb'))
+
+        
+        
+        # model plots
+
 
         labels_models = ['contextual no random','opposite','lick bias','contextual + lick bias','opposite+lickbias','contextual']
         labellist = [['lick bias','visual context'],[None,'audio context']]
         colors_models = ['purple','red','darkorange','seagreen','gold','fuchsia']
         mouserange = np.arange(n_mice)
-        for mx,m in enumerate([2,5]):
-            axs.bar(x=mouserange+(bx-0.5)/3+(mx*0.12-0.06), height=LL[:,bx,1,2,m],
-                    color=colors[bx], alpha=0.2+0.8*mx, width=0.14)
 
-            # legend
-            wh = 0.15; hh = 0.1
-            axs.add_patch(plt.Rectangle((0+wh*bx,-0.9-hh*mx),wh,hh, ec=colors[bx], fc=colors[bx], alpha=0.2+mx*0.8))
-            if bx==1: axs.text(0+2*wh,-0.9-hh*mx+hh/2,[' context unaware',' context aware'][mx],fontsize='x-small',verticalalignment='center',horizontalalignment='left')
+
+        axs = axins[2]
 
         
+        includedmodelids = [1,1]   # anticontextual, contextual
+        includerelevancyids = [1,0] # 0=contextual, 1=anticontextual
+        incongruentdata = 1
+
+        for mx,m in enumerate(includedmodelids):
+            axs.bar(x=mouserange+(bx-0.5)/3+(mx*0.12-0.06), height=LL[:,includerelevancyids[mx],bx,incongruentdata,m], width=0.10,
+                    color=['white',colors[bx]][mx], edgecolor=colors[bx], alpha=[1,1][mx])
+
+        # # broken deep bars: background cover
+        # axs.add_patch(plt.Rectangle((-0.57,-1.34),1.94,0.47, ec='black', fc='white', zorder=100))
+
+        # legend
+        for mx,m in enumerate(includedmodelids):
+            wh = 0.15; hh = 0.1/1.2*8.5
+            axs.add_patch(plt.Rectangle((-0.52+wh*bx,-7.50-hh*mx),wh,hh, ec=colors[bx], fc=['white',colors[bx]][mx],
+                                         alpha=[1,1][mx], zorder=101))
+            if bx==1:
+                axs.text(-0.52+2*wh,-7.50-hh*mx+hh/2,[' context opposite',' context aware'][mx],
+                         fontsize=9,verticalalignment='center',horizontalalignment='left', zorder=102)
+
         
-            
-        axs.set_ylim(-1.05,0.05)
         axs.set_xticks(np.arange(0,n_mice))
         axs.set_xticklabels([])
-        axs.set_ylabel('model\nlog likelihood',fontsize='x-small',labelpad=6)
+        axs.set_xlim(-0.6,n_mice-0.4)
+        axs.set_yticks([-5,0])
+        axs.set_yticklabels([-5,0],fontsize='x-small')
+        axs.set_ylim(-8.5,0.05)
+        axs.set_ylabel('model log\nlikelihood',fontsize='x-small',labelpad=6)
 
 
 
 
-    for ix in range(3):
+
+
+
+
+        axs = axins[3]
+
+        
+        includedmodelids = [0,3,4]   # meanbias, contextual bias, contextual lapse
+        includerelevancyids = [0,0,0] # 0=contextual, 1=anticontextual
+        incongruentdata = 1
+
+        for mx,m in enumerate(includedmodelids):
+            axs.bar(x=mouserange+(bx-0.5)/2.2+(mx*0.12-0.12), height=LL[:,includerelevancyids[mx],bx,incongruentdata,m], width=0.10,
+                    color=colors[bx], edgecolor=colors[bx], alpha=[0.167,0.6,1][mx])
+
+
+        # legend
+        for mx,m in enumerate(includedmodelids):
+            wh = 0.15; hh = 0.1
+            axs.add_patch(plt.Rectangle((-0.52+wh*bx,-0.90-hh*mx),wh,hh, ec=colors[bx], fc=colors[bx],
+                                         alpha=[0.167,0.6,1][mx], zorder=101))
+            if bx==1:
+                axs.text(-0.52+2*wh,-0.90-hh*mx+hh/2,[' context unaware',' context aware bias',' context aware lapse'][mx],
+                         fontsize=9,verticalalignment='center',horizontalalignment='left', zorder=102)
+
+            
+        axs.set_xticks(np.arange(0,n_mice))
+        axs.set_xticklabels([])
+        axs.set_xlim(-0.6,n_mice-0.4)
+        axs.set_yticks([-1,0])
+        axs.set_yticklabels([-1,0],fontsize='x-small')
+        axs.set_ylim(-1.15,0.05)
+        axs.set_ylabel('model log\nlikelihood',fontsize='x-small',labelpad=6)
+
+
+
+
+
+
+    for ix in range(4):
         axs = axins[ix]
         axs.spines['right'].set_visible(False)
         axs.spines['top'].set_visible(False)    
@@ -1442,15 +1525,18 @@ def figure1():
 
 
 
-    axins[2].set_xlabel('mice')
+    axins[3].set_xlabel('mice')
 
     x = datanames.index(dn_example_behavioursymmetryexploration)
-    axins[2].plot(x,0.98,'ko')
+    axins[3].plot(x,0.98,'ko')
 
 
 
 
-    figs.labelaxis(axins[0],panel,x=-0.10,y=1.1)
+    figs.labelaxis(axins[0],panels[0],x=-0.15,y=1.2)
+    for k in [1,2,3]:
+        figs.labelaxis(axins[k],panels[k],x=-0.15,y=0.95)
+
 
 
 
@@ -1469,7 +1555,7 @@ def figure1():
         # fig.savefig(resultpath+'Fig1D,E_training,behaviordprime'+ext)
         # fig.savefig(resultpath+'Fig1D,E_training,behaviordprime-horizontal'+ext)
         # fig.savefig(resultpath+'Fig1D,E_training,behaviordprime,extended.png')
-        fig.savefig(resultpath+'Fig1D,E,F,G_training,behaviorcongruency,ma'+ext)
+        fig.savefig(resultpath+'Fig1D,E,F,G_training,behaviorcongruency,ma,models'+ext)
 
 
 
@@ -2893,8 +2979,8 @@ def figure3():
         ec='rebeccapurple',fc='rebeccapurple',transform=axsign.transAxes))
     axsign.add_patch(plt.Rectangle((0,0),1,0.4,\
         ec='darkorange',fc='darkorange',transform=axsign.transAxes))
-    axs.text(-1,0.5,'high performance',transform=axsign.transAxes, horizontalalignment='right',verticalalignment='bottom',fontsize='x-small')
-    axs.text(-1,0.0,' low performance',transform=axsign.transAxes, horizontalalignment='right',verticalalignment='bottom',fontsize='x-small')
+    axs.text(-1,0.5,' consistent',transform=axsign.transAxes, horizontalalignment='right',verticalalignment='bottom',fontsize='x-small')
+    axs.text(-1,0.0,'exploratory',transform=axsign.transAxes, horizontalalignment='right',verticalalignment='bottom',fontsize='x-small')
     
 
 
@@ -2947,7 +3033,7 @@ def figure3():
 
     
     # plot behaviour-selected trials' accuracy
-    symmetrylabels = ['high performance','low performance']
+    symmetrylabels = ['consistent','exploratory']
     symmetrycolors = ['rebeccapurple','darkorange']
     for rx in range(2):             # train subset
         sx = 0         # crosstest subset (same)
@@ -3064,7 +3150,7 @@ def figure3():
     axs.plot([datanames.index(dn_example_behavioursymmetryexploration)],[-0.3],'ko')
 
 
-    axs.set_ylabel('context accuracy difference\nhigh$-$low performance', labelpad=-20, fontsize='small')
+    axs.set_ylabel('context accuracy difference\nconsistent$-$exploratory', labelpad=-20, fontsize='small')
 
 
 
@@ -3198,6 +3284,7 @@ def figure4():
     for n,dn in enumerate(datanames):
         crossdecoder_matrix_allaspects = pickle.load(open('../cache/continuous/crossdecodematrix-%s-%dms_%s.pck'%(continuous_method,T['dt'],dn),'rb'))
         # crossdecoder_matrix_allaspects = pickle.load(open('../cache/continuous/crossdecodematrix,allcontexts,contextcond,cv-%s-%dms_%s.pck'%(continuous_method,T['dt'],dn),'rb'))
+        # crossdecoder_matrix_allaspects = pickle.load(open(cacheprefix+'continuous/crossdecodematrix%s,contextcond,cv-%s-%dms_%s.pck'%(,'correctnogocontext', continuous_method,T['dt'],dn),'rb'))
 
         if dn=='MT020_2': crossdecoder_matrix_allaspects = crossdecoder_matrix_allaspects[:,:592,:590,:]
         crossdecoder_matrix_allaspects_all.append(crossdecoder_matrix_allaspects)
@@ -4299,6 +4386,7 @@ def figure4():
     save = 0 or globalsave
     if save:
         fig.savefig(resultpath+'Fig4_context,subspace-dynamics'+ext)
+        # fig.savefig(resultpath+'Fig4_context,subspace-dynamics_correctnogo'+ext)
         # fig.savefig(resultpath+'Fig4_context,subspace-dynamics-continuouscolorscale'+ext)
 
 
@@ -5573,14 +5661,28 @@ def figure7():
 
     # FIGURE
     
+    # create a 2 by 3 grid of subplots, then below it a 1 by 2, with 1:2 proportion, and then below a 1 by 3
     
-    fig,ax = plt.subplots(3,3,figsize=(3*8,2*8))
+    fig = plt.figure(figsize=(3*8,4*6))
+    axtop = np.empty((2,3),dtype=object)
+    axmid = np.empty((1,2),dtype=object)
+    axbot = np.empty((1,3),dtype=object)
+    gs = gridspec.GridSpec(4, 3)
+    for i in range(2):            # 2 rows of 3 panels
+        for j in range(3):
+            axtop[i,j] = fig.add_subplot(gs[i, j:j+1])
+    # 1 row of 1:2 proportion panels
+    axmid[0,0] = fig.add_subplot(gs[2, 0])
+    axmid[0,1] = fig.add_subplot(gs[2, 1:3])
+    for i in range(3):  # last row of 3 panels
+        axbot[0,i] = fig.add_subplot(gs[3, i:i+1])
     
+    # fig,ax = plt.subplots(4,3,figsize=(3*8,4*6))
     
     
     # patching together 3  50 ms width runspeed distributions
     panel = 'A'
-    axs = ax[0,0]
+    axs = axtop[0,0]
     timepoints = [150,155,160]
     timecourseindices = np.array(timepoints,dtype=np.int16)//decoderwidth
 
@@ -5611,7 +5713,7 @@ def figure7():
 
     # selected number of trials
     panel = 'B'
-    axs = ax[0,1]
+    axs = axtop[0,1]
     timepoints = [150,155,160]
     timecourseindices = np.array(timepoints,dtype=np.int16)//decoderwidth
     
@@ -5646,7 +5748,7 @@ def figure7():
     # schematics: runspeed equalization selection activity projections
     panel = 'C'
     
-    axs = ax[0,2]
+    axs = axtop[0,2]
 
     np.random.seed(152)
     x1 = np.random.randn(15)/7+0.5
@@ -5684,7 +5786,7 @@ def figure7():
     
     # decoder acc. single mouse
     panel = 'D'
-    axs = ax[1,0]
+    axs = axtop[1,0]
 
 
     s = len(runshifts_times)//2+1-1  # find the zero shift position
@@ -5692,6 +5794,8 @@ def figure7():
     figs.plottoaxis_decoderrocauc(ad_n[n_cherry][s][cx][:2],axs,colorlist=['white','black'],plottrain=False,onlysem=True,label='original')       # plot the performance
     figs.plottoaxis_decoderrocauc(ad_r[n_cherry][s][cx][:2],axs,colorlist=['white','mediumvioletred'],plottrain=False,onlysem=True,label='locomotion dist. equalized')       # plot the performance
     figs.setxt(axs)
+    axs.set_ylim(0.45,1.05)
+    axs.set_xlim(-1300,4200)
     figs.plottoaxis_stimulusoverlay(axs,T)
     figs.plottoaxis_chancelevel(axs,chances[dn_ch])
     axs.legend(frameon=False)
@@ -5716,7 +5820,7 @@ def figure7():
 
     # dec. acc. all mice
     panel = 'E'
-    axs = ax[1,1]
+    axs = axtop[1,1]
 
 
     s = len(runshifts_times)//2+1-1  # find the zero shift position
@@ -5785,7 +5889,7 @@ def figure7():
 
     # runspeed shift has no effect
     panel = 'F'
-    axs = ax[1,2]
+    axs = axtop[1,2]
 
     
     timepoints = np.array([-500,0,500,2000])*pq.ms
@@ -5818,7 +5922,54 @@ def figure7():
 
 
 
+    # congruent nogo correct trials comparison
+    panel = 'G'
+    axs = axmid[0,0]
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
+    accuracies_nogocongr_all = []
+    accuracies_all = []
+    times =  np.arange(-1500,4501,10)[:-5]*pq.ms
+    for n,dn in enumerate(datanames):
+        accuracies,coefs = pickle.load(open(cacheprefix+'continuous/gonogo,correcterror-context-decoder,timecourse_%s.pck'%(dn), 'rb'))
+        accuracies_nogocongr_all.append(accuracies)
+        acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'context','all'),'rb'))
+        accuracies_all.append(np.array(acrossdecoder[1]))
+    print(accuracies_all[0].shape)
+        
+    accuracies_nogocongr_all = np.stack(accuracies_nogocongr_all, axis=0)
+    accuracies_all = np.stack(accuracies_all, axis=0)
+    print(accuracies_all.shape)
 
+
+    m = neph.smooth(accuracies_nogocongr_all[:,:,1,0,1,0].mean(axis=0),mode='same')
+    e = neph.smooth(accuracies_nogocongr_all[:,:,1,0,1,0].std(axis=0)/np.sqrt(accuracies_nogocongr_all.shape[0]) + accuracies_nogocongr_all[:,:,1,2,1,0].mean(axis=0),mode='same')
+
+    axs.plot(times,m,color='red',lw=3,alpha=0.9,label='correct nogo congruent')
+    axs.fill_between(times,m-e,m+e,color='red',alpha=0.2)
+
+    m = neph.smooth(accuracies_all[:,:,0].mean(axis=0),mode='same')
+    e = neph.smooth(accuracies_all[:,:,0].std(axis=0)/np.sqrt(accuracies_all.shape[0]) + accuracies_all[:,:,2].mean(axis=0),mode='same')
+    axs.plot(times,m,color='mediumvioletred',lw=3,alpha=0.9,label='all')
+    axs.fill_between(times,m-e,m+e,color='mediumvioletred',alpha=0.2)
+
+    axs.legend(frameon=False)
+    figs.setxt(axs)
+    axs.set_ylim(0.45,1.05)
+    axs.set_xlim(-1300,4200)
+    figs.plottoaxis_stimulusoverlay(axs,T)
+    m_c = np.array(list(chances.values())).mean()
+    e_c = np.array(list(chances.values())).std()/np.sqrt(len(datanames))
+    figs.plottoaxis_chancelevel(axs,m_c+e_c)
+
+    axs.legend(frameon=False)
+    axs.set_ylabel('accuracy, context')
+    axs.set_xlabel('time from stimulus onset [ms]')
+
+
+    axs.spines['right'].set_visible(False)
+    axs.spines['top'].set_visible(False)
+
+    figs.labelaxis(axs,panel)
 
 
 
@@ -5860,6 +6011,13 @@ def figure7():
     s = np.std(E,axis=1)
 
 
+    accuracies_levels,coefs_levels,_,_ = pickle.load(open(cacheprefix+'locomotion/movementdistribution,levels,total-context-decoder,timecourse_%s.pck'%(dn), 'rb'))
+    levels, movingtrials = preprocess.loadmovinglevelstrials(dn)
+    n_levels = len(levels)
+
+    bodypartsaccuracies_levels,bodypartscoefs_levels,_,_ = pickle.load(open(cacheprefix+'locomotion/movementdistribution,levels,bodyparts-context-decoder,timecourse_%s.pck'%(dn), 'rb'))
+    bodypartslevels, bodypartsmovingtrials = preprocess.loadmovinglevelstrialsbodyparts(dn)
+    n_bodypartslevels = len(bodypartslevels)
 
 
 
@@ -5868,16 +6026,28 @@ def figure7():
 
 
     # display original and reconstructed movements
-    panel = 'G'
-    axs = ax[2,0]
-    fnbase = 'MT020_2-pc-reconstruction-small-f0'
-    frames = [6856,6857,6858,6859,6860,6861]
+    panel = 'H'
+    axs = axmid[0,1]
+    axs.axis('off')
+    figs.labelaxis(axs,panel)
+
+    axframes = axmid[0,1].inset_axes([0,0.2,1,0.8],transform=axs.transAxes)
+    axpcs = axmid[0,1].inset_axes([0.051,0,0.898,0.2],transform=axs.transAxes)
+
+
+    axs = axframes
+    fnbase = 'MT020_2-dpc-reconstruction-small-f'
+    # frames = [6856,6857,6858,6859,6860,6861]
+    frames = [14331, 14332, 14333, 14334, 14335, 14336]
     F = []
     for frame in frames:
         F.append(imageio.imread('../../../data/ucla/videos/'+fnbase+'%d'%frame+'.png'))
-    F = np.vstack(F)
-    
+    F = np.hstack(F)
+
     axs.imshow(F)
+
+    for (y,l) in zip(np.arange(0.125,1,0.25),['reconstruction','difference\nreconstruction','difference\noriginal','original']):
+        axs.text(-0.01, y, l, transform=axs.transAxes, fontsize='x-small', horizontalalignment='right', verticalalignment='center')
     
     axs.set_xticks([])
     axs.set_yticks([])
@@ -5887,7 +6057,27 @@ def figure7():
     axs.spines['right'].set_visible(False)
     axs.spines['top'].set_visible(False)
 
-    figs.labelaxis(axs,panel)
+
+
+    axs = axpcs
+    PCs = pd.read_csv('../../../data/ucla/videos/'+dn+'-reconstructionframes-dpcs.csv', sep=',', header=None)
+    n_frames,n_pcs = PCs.shape
+    m = np.abs(PCs).mean(axis=1)
+    e = np.abs(PCs).std(axis=1)/np.sqrt(n_pcs)
+
+    axs.plot(np.arange(n_frames),m, '.-', color='black',lw=1,alpha=0.9)
+    axs.fill_between(np.arange(n_frames),m-e,m+e,color='black',alpha=0.2)
+
+    axs.set_xticks([])
+    axs.set_xlim(-0.5,PCs.shape[0]-0.5)
+    axs.set_ylim(0.8,1.4)
+    axs.set_yticks([0.8,1,1.2,1.4])
+    axs.set_yticklabels(['0.8','1.0','1.2','1.4'],fontsize='xx-small')
+    axs.set_ylabel('absolute\nmotion [AU]',fontsize='x-small')
+    axs.set_xlabel('time [frames]',fontsize='x-small')
+
+    axs.spines['right'].set_visible(False)
+    axs.spines['top'].set_visible(False)
 
 
 
@@ -5895,8 +6085,30 @@ def figure7():
 
 
 
-    panel = 'H'
-    axs = ax[2,1]
+    # display filters and activations throughout the sequence in 'H'
+    # panel  = 'I'
+    # axs = ax[2,2]
+
+    # axs.set_xticks([])
+    # axs.set_yticks([])
+
+    # axs.spines['left'].set_visible(False)
+    # axs.spines['bottom'].set_visible(False)
+    # axs.spines['right'].set_visible(False)
+    # axs.spines['top'].set_visible(False)
+
+    # figs.labelaxis(axs,panel)
+
+
+
+
+
+
+
+
+
+    panel = 'I'
+    axs = axbot[0,0]
     for mx in range(2):
         color = ['rebeccapurple','mediumvioletred'][mx]
         label = ['stationary trials','all trials'][mx]
@@ -5909,14 +6121,15 @@ def figure7():
         axs.plot(times, m, color=color, lw=3, label=label)
         axs.fill_between(times, m-e, m+e, color=colors, alpha=0.3)
 
-        figs.setxt(axs)
-        axs.set_ylim(0.45,1.05)
-        figs.plottoaxis_stimulusoverlay(axs,T)
-        figs.plottoaxis_chancelevel(axs,0.5)
+    figs.setxt(axs)
+    axs.set_ylim(0.45,1.05)
+    axs.set_xlim(-1300,4200)
+    figs.plottoaxis_stimulusoverlay(axs,T)
+    figs.plottoaxis_chancelevel(axs,chances[dn])
 
-        axs.legend(frameon=False)
-        axs.set_ylabel('accuracy, context')
-        axs.set_xlabel('time from stimulus onset [ms]')
+    axs.legend(frameon=False)
+    axs.set_ylabel('accuracy, context')
+    axs.set_xlabel('time from stimulus onset [ms]')
 
     axs.spines['right'].set_visible(False)
     axs.spines['top'].set_visible(False)
@@ -5926,8 +6139,8 @@ def figure7():
 
 
 
-    panel = 'I'
-    axs = ax[2,2]
+    panel = 'J'
+    axs = axbot[0,1]
     colors = plt.cm.viridis( np.linspace(0, 0.8, n_proportions) )
     for px,pr in enumerate(proportions):
 
@@ -5941,10 +6154,37 @@ def figure7():
     axs.plot(thresholds[th_disp],accuracies[:,1,0,prop_disp,th_disp].mean(axis=0),'o',color='rebeccapurple')
 
     axs.set_ylim(0.45,1.05)
-    figs.plottoaxis_chancelevel(axs,0.5)
+    figs.plottoaxis_chancelevel(axs,chances[dn])
 
     axs.set_xlabel('absolute motion threshold [SU]')
-    axs.legend(frameon=False, loc='lower right',fontsize='x-small',ncol=2)
+    axs.legend(frameon=False, loc='upper right',fontsize='x-small',ncol=2)
+    axs.set_ylabel('accuracy, context')
+    
+
+    axs.spines['right'].set_visible(False)
+    axs.spines['top'].set_visible(False)
+
+    figs.labelaxis(axs,panel)
+
+
+
+
+
+    panel = 'K'
+    axs = axbot[0,2]
+    accuracies_levels
+
+    m = np.nanmean(accuracies_levels[:,1,0,:], axis=0)
+    e = np.nanmean(accuracies_levels[:,1,2,:], axis=0)
+    axs.plot(levels, m, color='mediumvioletred', lw=1)
+    axs.fill_between(levels, m-e, m+e, color='mediumvioletred', alpha=0.3)
+
+
+    axs.set_ylim(0.45,1.05)
+    figs.plottoaxis_chancelevel(axs,chances[dn])
+
+    axs.set_xlabel('absolute motion level [AU]')
+    axs.legend(frameon=False)
     axs.set_ylabel('accuracy, context')
     
 
@@ -5953,6 +6193,10 @@ def figure7():
     axs.spines['top'].set_visible(False)
 
     figs.labelaxis(axs,panel)
+
+
+
+
 
 
 
@@ -7510,6 +7754,7 @@ def supplementaryfigure6():
             e = angles_av.std()/np.sqrt(angles_av.shape[0])
             _,p = sp.stats.ttest_1samp(angles_av,90)
             print('visual-audio angle = %4.2f+/-%4.2f°, t-test p '%(m,e),p)
+            
 
 
 
@@ -7752,2274 +7997,139 @@ def supplementaryfigure6():
 
 
 
+def supplementaryfigure8():
+    # body parts mean absolute intensity in region of interests of the video
+    # equalized between contexts
 
+    dn = 'MT020_2'
 
+    bodypartnames = ['nose','mouth','eye','ear','forepaw','back']
 
+    levels, movingtrials = preprocess.loadmovinglevelstrialsbodyparts(dn, bodypartnames)
+    levels[-1] = 0.07
+    n_levels = len(levels)
+    n_trials, n_movement_timestamps, n_bodyparts = movingtrials.shape
 
+    accuracies,coefs,accuracyall,coefsall,accuraciesrandom,coefsrandom = pickle.load(open(cacheprefix+'locomotion/movementdistribution,levels,bodyparts-context-decoder,timecourse_%s.pck'%dn, 'rb'))
 
-# UNUSED NEW
+    bodypartsmotions = preprocess.loadmovingtrialsbodyparts(dn)
 
-
-def figure3_unused():
-
-
-
-
-    # show remaining trials (the order of panels is intentionally exchanged, as we need the same order of mice)
-    panel = 'M'
-    axs = ax[3,1]
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
-    n_mice = len(datanames)
-    
-    trialnumbers = np.zeros((n_mice,4))
-    for n,dn in enumerate(datanames):
-        # load trials data
-        g = preprocess.loadexperimentdata(dn, full=False, multimodalonly=True)
-        g['block']+=1
-        g['success'] = g['punish']==False
-        blv,bla = preprocess.getorderattended(dn)
-
-
-        # apply behaviour masks, to get a "clever"=True mask for all trials
-        ma = 20
-        ma_th = 0.5
-        action = ['go','nogo']
-        congruency = ['congruent','incongruent']
-        mask_clevers_list = [[],[]] # holds context dependent list
-        mask_clevers = []           # holds indexed by original trial order
-        for c in congruency:
-            for a in action:
-                mask_clever_contexts = get_mask_cleverness(dn, ma=ma, ma_threshold=ma_th, visualfirst=True, go=a, congruency=c)
-                for cx,mask_clever_context in enumerate(mask_clever_contexts):
-                    mask_clevers_list[cx].append(mask_clever_context)
-                mask_clever = np.hstack( get_mask_cleverness(dn, ma=ma, ma_threshold=ma_th, visualfirst=False, go=a, congruency=c) )
-                mask_clevers.append(mask_clever)
-        
-        mask_clevers_list = [ np.vstack(mask_clevers_list[cx]).T for cx in [0,1]]
-        mask_clevers = np.vstack(mask_clevers).T
-
-
-        mask_contextuals = [ np.prod(mask_clevers_list[cx],axis=1) for cx in [0,1] ]
-        # display the number of trials that has above threshold movingaverage for all 4 combinations of congruenct and action
-        trialslabel = '1st(%s):%d/%d, 2nd(%s):%d/%d'%(['V','A'][blv[1]==4],np.sum(mask_contextuals[0]), len(mask_contextuals[0]), ['A','V'][blv[1]==4], np.sum(mask_contextuals[1]), len(mask_contextuals[1]))
-        trialnumbers[n,:] = np.array([np.sum(mask_contextuals[0]), len(mask_contextuals[0])-np.sum(mask_contextuals[0]), np.sum(mask_contextuals[1]), len(mask_contextuals[1])-np.sum(mask_contextuals[1]) ])
-
-
-
-    colors = ['navy','slategrey','darkgreen','mediumseagreen']
-    labels = ['visual, symmetric','visual, asymmetric','audio, symmetric','audio, asymmetric']
-    print('BL',blv, bla)
-    if blv[1]==4:
-        colors = [colors[2], colors[3], colors[0],colors[1]]
-        labels = [labels[2], labels[3], labels[0],labels[1]]
-
-    for bx in range(4):
-        axs.bar(x=np.arange(0,4*n_mice,4)+bx*0.75-2,height=trialnumbers[differenceorder,bx], color=colors[bx])
-    axs.legend(labels, frameon=False, loc='upper left')
-    axs.set_xticks([])
-    axs.set_xlabel('mice')
-    axs.set_ylabel('number of trials')
-
-
-
-
-
-    figs.labelaxis(axs,panel)
-    axs.spines['right'].set_visible(False)
-    axs.spines['top'].set_visible(False)    
-
-
-
-
-
-
-
-
-
-
-
-
-
-# UNUSED SUPPLEMENTARY
-
-
-
-
-
-def supplementaryfigure4_unused():
-
-
-
-    datanames = ['ME108','ME110','ME112','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']
-    
-    # load rate statistics
-    rss = pickle.load(open('../cache/phys/rate,trajectories,celltypes,allmice-%s.pck'%(continuous_method),'rb'))
-    # rss dimensions: [n,cx,lidx,cidx][trials][trajectory,neurons]
-    
-    dn = 'DT017'
-    n = 7
-    
-    rs = rss[n,:,:,:]
-    layerlist = [1,2,3,4]       # choose which layer to focus on: 0 all, 1 superf, 2 input, 3 deep5, 4 deep6
-    celltypelist = [0,1]        # choose which spike width to use: 0 narrow, 1 broad
-    
-    
-    # data to assess:
-    # pyr: {all trials} x {trajectories} x {pyrcells}
-    # inh: {all trials} x {trajectories} x {inhcells}
-    
-    wx = int((1000*pq.ms/T['dt']).magnitude)
-    
-    fr_p = []
-    # for trx in range(len(rs[0,0,0]))
-    # pyr:
-    aux1 = np.concatenate( [ np.array(rs[0,k,1]) for k in range(rs.shape[2])  ], axis=2 )
-    aux2 = np.concatenate( [ np.array(rs[1,k,1]) for k in range(rs.shape[2])  ], axis=2 )
-#    fr_p = pq.Quantity( np.concatenate( [aux1,aux2]), units = pq.ms )
-    fr_p = np.concatenate( [aux1,aux2] )
-
-    # inh:
-    aux1 = np.concatenate( [ np.array(rs[0,k,0]) for k in range(rs.shape[2])  ], axis=2 )
-    aux2 = np.concatenate( [ np.array(rs[1,k,0]) for k in range(rs.shape[2])  ], axis=2 )
-#    fr_i = pq.Quantity( np.concatenate( [aux1,aux2]), units = pq.ms )
-    fr_i = np.concatenate( [aux1,aux2] )
-    
-    # fr statistics    
-    m_p = fr_p.mean(axis=(0,2))
-    sem_p = fr_p.std(axis=(0,2))/np.sqrt(fr_p.shape[0]*fr_i.shape[2])
-    m_i = fr_i.mean(axis=(0,2))
-    sem_i = fr_i.std(axis=(0,2))/np.sqrt(fr_i.shape[0]*fr_i.shape[2])
-    
-    # histogram data
-    h_p_sa = fr_p[:,T['stimstart_idx']-wx:T['stimstart_idx'],:].mean(axis=1).reshape(-1)
-    h_p_ea = fr_p[:,T['stimstart_idx']:T['stimstart_idx']+wx,:].mean(axis=1).reshape(-1)
-    h_i_sa = fr_i[:,T['stimstart_idx']-wx:T['stimstart_idx'],:].mean(axis=1).reshape(-1)
-    h_i_ea = fr_i[:,T['stimstart_idx']:T['stimstart_idx']+wx,:].mean(axis=1).reshape(-1)
-    
-    
-
-
-
-
-
-
-
-    # D  cross decoders: across trajectory and blocks
-    dn = 'DT017'
-    comparison = 'context'
-    trainingoffsets = np.array([0,375,750,1225])*pq.ms
-    trainingpoints = T['starttime'] + trainingoffsets
-    trainingoffsetidx = [[0,27],[27,27+27]]
-    trx = 3
-    offstimdecoders = []
-    for trx,toff in enumerate(trainingpoints):
-        offstimdecoders.append(pickle.load(open('../cache/continuous/offstimdecodes-%s-%s-%s_t%d.pck'%(dn,continuous_method,comparison,trx),'rb')))
-    offstimdecoders_sa = []
-    offstimdecoders_ea = []
-    for n,dn in enumerate(datanames):
-        trx = 2
-        aux = pickle.load(open('../cache/continuous/offstimdecodes-%s-%s-%s_t%d.pck'%(dn,continuous_method,comparison,trx),'rb'))
-        aux = aux[1][0:27,0].mean()
-        offstimdecoders_sa.append(aux)
-        trx = 3
-        aux = pickle.load(open('../cache/continuous/offstimdecodes-%s-%s-%s_t%d.pck'%(dn,continuous_method,comparison,trx),'rb'))
-        aux = aux[1][27:27+27,0].mean()
-        offstimdecoders_ea.append(aux)
-
-
-
-    # E behaviour
-    datanames = ['ME108','ME110','ME112','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']
-    n_mice = len(datanames)
-    
-    Xa = []
-    Ya = []
-    perf = np.zeros((n_mice,6))
-    expertise = np.zeros(n_mice)
-
-    for n,dn in enumerate(datanames):
-        print(dn)
-        a,b,b_s,_,_,_ = preprocess.loadtrainingbehaviouraldata(dn)       # a: all data, b: behav, b_s behav sem.
-        perf[n,:] = [ b[1],b[3], b[5], 2*b_s[1], 2*b_s[3], 2*b_s[5] ]      # behaviour and its s.e.m.
-
-
-        acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'context','all'),'rb'))
-        expertise[n] = acrossdecoder[1][ T['start_idx']:T['stimstart_idx'], 0 ].mean()
-
-        Ya.append( [a[1],a[3], np.concatenate( [a[1],a[3]] ) ] )
-        Xa.append( [ expertise[n]*np.ones(len(Ya[-1][0])), expertise[n]*np.ones(len(Ya[-1][1])), expertise[n]*np.ones(len(Ya[-1][2])) ] )
-
-
-    Yl = [ np.concatenate( [  Ya[n][d] for n in range(n_mice)  ] ) for d in range(3) ]
-    Xl = [ np.concatenate( [  Xa[n][d] for n in range(n_mice)  ] ) for d in range(3) ]
-
-
-
-
-
-
-
-
-
-    # FIGURE
-
-
-
-
-    f1n=2; f2n=4     # full span of panel grid  vertical and horizontal
-
-    fig = plt.figure(constrained_layout=False,figsize=(f2n*8,f1n*8))
-    gs = fig.add_gridspec(f1n, f2n)
-    ax = []
-    ax_sides = []
-    for j in np.arange(f1n):
-        axa=[]
-        for k in np.arange(f2n):
-            if j==1 and k in [1,2]:
-                gs_double = gs[j,k].subgridspec(1, 4)
-                ax_main = fig.add_subplot(gs_double[0,:-1])
-                ax_sides.append(fig.add_subplot(gs_double[0,-1]))
-                axa.append( ax_main )
-            else:
-                axa.append( fig.add_subplot(gs[j, k]) )
-        ax.append(axa)
-    ax = np.array(ax)
-
-
-
-
-
-
-
-
-
-
-
-    
-
-
-
-
-    panels = ['A','B']
-    times = np.arange(-1500*pq.ms,4501*pq.ms,T['dt'])
-    
-    axs = ax[0,0]
-    figs.plottoaxis_plottrajectory(axs,times,m_p,2*sem_p,'k',linewidth=2)
-    axs.legend(['broad spiking cells'])
-    figs.labelaxis(axs,panels[0])
-
-    axs = ax[0,1]
-    figs.plottoaxis_plottrajectory(axs,times,m_i,2*sem_i,'r',linewidth=2)
-    axs.legend(['narrow spiking cells'])
-
-    axs = ax[0,2]
-    axs.hist( (h_p_ea-h_p_sa).squeeze(),bins=50,density=True,color='k')
-    axs.legend(['broad spiking\ncells EA-SA'])
-    figs.labelaxis(axs,panels[1])
-
-    axs = ax[0,3]
-    axs.hist( (h_i_ea-h_i_sa).squeeze(),bins=50,density=True,color='r')
-    axs.legend(['narrow spiking\ncells EA-SA'])
-
-    for ix in [0,1]:
-        axs = ax[0,ix]
-        axs.set_xlim(-1200,4300)
-        axs.set_ylim(0,11)
-        figs.setxt(axs)
-        axs.set_yticks([0,5,10])
-        figs.plottoaxis_stimulusoverlay(axs,T)
-        axs.set_ylabel('[Hz]')
-        axs.spines['right'].set_visible(False)
-        axs.spines['top'].set_visible(False)
-
-        axs = ax[0,ix+2]
-        axs.set_xlim(-20,20)
-        axs.set_ylim(0,0.20)
-        axs.set_xticks([-10,0,10])
-        axs.set_yticklabels([])
-        axs.set_xlabel('[Hz]')
-        axs.set_ylabel('hist. freq. [AU]')
-        axs.spines['right'].set_visible(False)
-        axs.spines['top'].set_visible(False)
-
-
-
-
-
-
-
-
-
-
-    panel = 'C'
-    title = 'decoding schematics'   #,'on time\nparadigm','across time, within trial\nparadigm','across time across block\nparadigm']
-
-    axs = ax[1,0]
-    drawschematics(axs,0)
-    
-    axs.set_title(title)
-    axs.spines['left'].set_visible(False)
-    axs.spines['right'].set_visible(False)
-    axs.spines['top'].set_visible(False)
-    axs.spines['bottom'].set_visible(False)
-    axs.set_xticks([])
-    axs.set_yticks([])
-
-    figs.labelaxis(axs,panel)
-
-    
-
-
-
-
-
-
-
-
-
-
-    panel = 'D'
-    for trx in [2,3]:
-        axs = ax[1,1+trx-2]
-        
-        colors = ['indigo','mediumvioletred']
-#        ft = slice()
-#        figs.plottoaxis_offdecoderrocauc(offstimdecoders[trx],axs,T,colors=colors)
-
-        axs.set_ylim(0.45,1.001)
-        axs.set_xlim(-1500,2400)
-        ylim = axs.get_ylim()
-
-        # plot and indicate training:
-
-        axs.plot(offstimdecoders[trx][0].times,offstimdecoders[trx][0][:,0],linewidth=5,color=colors[0],alpha=1)
-
-        axs.fill_between([ offstimdecoders[trx][0].times[0], offstimdecoders[trx][0].times[-1],],\
-                        [ylim[0],ylim[0]],[ylim[1],ylim[1]],color=colors[0],alpha=0.33)
-
-        labels=['1','2','3','4','5']
-        # highlight test area
-        ft = slice(trainingoffsetidx[3-2][0],trainingoffsetidx[3-2][1])
-        tt = 1
-        t = offstimdecoders[trx][tt].times
-        axs.plot(t[ft],offstimdecoders[trx][tt][ft,0],linewidth=2,color=colors[tt],label=labels[tt])
-        axs.fill_between(t[ft], (offstimdecoders[trx][tt][ft,0]-offstimdecoders[trx][tt][ft,2]).squeeze(),\
-                            (offstimdecoders[trx][tt][ft,0]+offstimdecoders[trx][tt][ft,2]).squeeze(),\
-                            alpha=0.4,color=colors[tt])
-        axs.fill_between(t[ft], (offstimdecoders[trx][tt][ft,0]-offstimdecoders[trx][tt][ft,1]).squeeze(),\
-                            (offstimdecoders[trx][tt][ft,0]+offstimdecoders[trx][tt][ft,1]).squeeze(),\
-                            alpha=0.2,color=colors[tt])
-        axs.plot(t,offstimdecoders[trx][tt][:,0],linewidth=1,color=colors[tt],label=labels[tt],alpha=0.2)
-        axs.fill_between(t, (offstimdecoders[trx][tt][:,0]-offstimdecoders[trx][tt][:,2]).squeeze(),\
-                            (offstimdecoders[trx][tt][:,0]+offstimdecoders[trx][tt][:,2]).squeeze(),\
-                            alpha=0.1,color=colors[tt])
-        axs.fill_between(t, (offstimdecoders[trx][tt][:,0]-offstimdecoders[trx][tt][:,1]).squeeze(),\
-                            (offstimdecoders[trx][tt][:,0]+offstimdecoders[trx][tt][:,1]).squeeze(),\
-                            alpha=0.03,color=colors[tt])
-        
-        
-        
-        
-        
-        
-    #    axs.legend(['train','test'],loc=4)
-        figs.plottoaxis_stimulusoverlay(axs,T)
-        figs.plottoaxis_chancelevel(axs,0.5,'chance level')
-        axs.set_xticks([0,2000])
-        axs.set_yticks([0.5,1])
-        
-        axs.text(trainingpoints[trx]-550*pq.ms,0.98,'train',color=colors[0])
-        axs.text(trainingpoints[trx]+500*pq.ms,0.65,'test',color=colors[1])
-
-        axs.set_xlabel('[ms]')
-        
-        axs.spines['right'].set_visible(False)
-        axs.spines['top'].set_visible(False)
-        
-        
-#    axins = inset_axes(axs, width="40%", height="40%", loc=6)
-
-        axins = axs.inset_axes([-0.4,0.55, 0.4/3*4,0.4],transform=axs.transAxes)
-        drawschematics(axins,5+trx-2)
-        axins.axis('off')
-
-        if trx==2: figs.labelaxis(axs,panel,x=-0.37)
-  
-
-    # context cross decoder: tasks
-
-    for cx in range(2):
-        axs = ax_sides[cx]
-        artist = axs.boxplot([offstimdecoders_sa,offstimdecoders_ea][cx],notch=True,widths=0.3,\
-                             labels=[['PRE->PRE','PRE->ON'][cx]])
-    
-        for element in artist.keys():
-            plt.setp(artist[element], color=colors[1],linewidth=2)
-    
-        axs.set_xticks([])
-        axs.set_yticks([0.5,1])
-        axs.set_yticklabels([])
-    
-        axs.set_ylim(0.45,1.001)
-        figs.plottoaxis_chancelevel(axs,0.5)
-#        axs.set_title('n=%d'%len(datanames))
-    
-        axs.spines['right'].set_visible(False)
-        axs.spines['top'].set_visible(False)
-
-
-
-
-
-
-
-    # J, behaviour
-
-#    norminv(fraction trials	with	correct	licking)	– norminv(fraction	trials	with	incorrect	licking
-    panel = 'E'
-    colors = ['darkorange','darkred','firebrick']
-    ylabels = 'error fraction'
-
-    for dx in [0,1]:     # for misses+fals do both separately
-        axs = ax[1,3]
-        
-        x = np.array([ np.mean(Xa[n][dx]) for n in range(len(Xa)) ])
-        y = np.array([ np.mean(Ya[n][dx]) for n in range(len(Xa)) ])
-        
-        axs.scatter(x,y,s=150,marker='o',color=colors[dx],alpha=0.8,label=['miss','false alarm','miss & false alarm'][dx])
-        for n in range(n_mice): axs.errorbar(x[n],y[n],yerr=perf[n,dx+3],color=colors[dx],alpha=0.8)
-        axs.set_xlim(0.45,1.01)
-#        axs.set_ylim(-0.04,1.04)
-        axs.set_ylim(-0.02,0.5)
-        if dx==0: figs.plottoaxis_crosshair(axs,0.5,0)
-        axs.set_xlabel('context PRE', labelpad=0.1, verticalalignment='bottom')
-
-        axs.set_xticks([0.5,1])
-        axs.set_yticks([0,0.5])
-        axs.set_yticklabels(['0','0.5'])
-        
-
-        l = sp.stats.linregress(Xl[dx],Yl[dx])
-        if l[3]<0.05:
-            line = np.linspace(start=x.min()*0.8,stop=x.max()*1.2,num=2)
-            axs.plot(line,l[0]*line+l[1],color=colors[dx],linewidth=2)
-        else:
-            line = np.linspace(start=x.min()*0.8,stop=x.max()*1.2,num=2)
-            axs.plot(line,l[0]*line+l[1],'--',color=colors[dx],linewidth=2)
-            
-        xoffs = 0.05  #0.35
-#        yoffs = y.mean()*1.4 - 0.06     #/2.5 + 0.35
-        yoffs = [0.05, 0.36, 0.27][dx]
-        if l[3]<1e-5:
-            axs.text(line[0]+xoffs,yoffs,'p<%s, slope=%5.3f, R$^2$=%6.4f'%(('10e$^{-5}$',l[2],l[2]**2)),color=colors[dx])
-        elif l[3]<0.001:
-            axs.text(line[0]+xoffs,yoffs,'p<%5.3f, slope=%5.3f, R$^2$=%6.4f'%((0.001,l[2],l[2]**2)),color=colors[dx])
-        else:
-            axs.text(line[0]+xoffs,yoffs,'p=%5.3f, slope=%5.3f, R$^2$=%6.4f'%((l[3],l[2],l[2]**2)),color=colors[dx])
-        
-        axs.spines['right'].set_visible(False)
-        axs.spines['top'].set_visible(False)
-
-    axs.legend(frameon=False)
-#    axs.set_title('%d mice, %d trials'%(n_mice,np.sum(Xl[2])))
-    axs.set_ylabel(ylabels, labelpad=0, verticalalignment='top')
-    figs.labelaxis(axs,panel)
-
-
-
-
-
-    panel = 'J' # multiple mouse visual-context subspaces
-    
-    vib = basisvectors.index(0)   # look for visual coordinate to separete into two figures
-    cxb = basisvectors.index(1)   # look for context coordinate to separete into two figures
-
-    labels = ['visual comp. orth. to context','context']
-    bp = np.array([[0,1],[0,2],[1,2]]) # basis pairs for the 2D unfolding
-    b=0   # choisen coordinate axes: visual and context
-    # use the same pre/on from 'G' panel
-    for n,dn in enumerate(datanamesefg):
-        # if not n in [9,10,11,12,13]: continue
-
-        dbnbasiscomps = dbnbasiscomps_all[n]
-        projections = projections_all[n]
-
-        # decide on + or - corr between vi and cx:
-        sx = dbnbasiscomps[bp[b,1],vib]>0
-        axs = ax[2,1+1+sx]
-        
-        
-
-        # In the following plots we have to flip the vectors to the upper-right quadrant (np.sign mirroring of coordinates).
-        # Uncomment below to display the flipper coordinates (x component of visual, y of context):
-        #        print(dn,'        vi:',np.sign(dbnbasiscomps[bp[b,0],0]),np.sign(dbnbasiscomps[bp[b,1],0]),\
-        #                 '        cx:', np.sign(dbnbasiscomps[bp[b,0],1]),np.sign(dbnbasiscomps[bp[b,1],1]))
-        
-        L = np.max(  np.hstack(  [ np.abs(projections[j,preon,k]) for j in range(3) for k in range(4)  ]   ) ) * 1.
-        
-
-    
-        # plot the attend and the ignore
-        for k in [0,1,2,3]:
-            axs.plot(projections[bp[b,0],preon,k],\
-                      projections[bp[b,1],preon,k],\
-                      'o',color=activitycolors[k],alpha=0.1)
-    
-        # plot the cov ellipsoids
-        for k in range(4):
-            figs.confidence_ellipse(projections[bp[b,0],preon,k],\
-                                    projections[bp[b,1],preon,k],\
-                                    axs, n_std=2.0, facecolor=activitycolors[k],alpha=0.05)
-
-        axs.set_xlabel(labels[bp[b,0]])
-        axs.set_ylabel(labels[bp[b,1]])
-    
-
-# create the legend
-#    axins = axs.inset_axes([-0.35,0.55, 0.4/3*4,0.4],transform=axs.transAxes)
-#    axins.axis('off')
-#
-#    xl0 = 0.2; yl0 = 0.0
-#    for j in range(2):
-#        for k in range(2):
-#            axins.add_patch(plt.Rectangle((xl0+0.05*j,yl0+0.05*k),0.05,0.05,\
-#              ec=activitycolors[j+2*k],fc=activitycolors[j+2*k],alpha=0.2,transform=axs.transAxes))
-#            axins.add_patch(plt.Circle((xl0+0.025+0.05*j,yl0+0.025+0.05*k),0.01,\
-#              ec=activitycolors[j+2*k],fc=activitycolors[j+2*k],alpha=0.4,transform=axs.transAxes))
-#    axins.text(xl0+0.05,  yl0+0.1,'45°',ha='right',va='bottom',transform=axs.transAxes)
-#    axins.text(xl0+0.05,  yl0+0.1,'135°',ha='left',va='bottom',transform=axs.transAxes)
-#    axins.text(xl0+0.125, yl0+0.075,'ignore',ha='left',va='center',transform=axs.transAxes)
-#    axins.text(xl0+0.125, yl0+0.025,'attend',ha='left',va='center',transform=axs.transAxes)
-
-
-    axs = ax[2,2]
-
-    axs.text(0.04, -0.04,'visual DV [SU]', ha='left',   va='center', transform=axs.transAxes)
-    axs.text(-0.04, 0.04,'context DV [SU]', ha='center', va='bottom',rotation=90, transform=axs.transAxes)
-
-
-    axs.set_xlim(axs.get_xlim())
-    axs.set_ylim(axs.get_ylim())
-
-
-    axs.spines['right'].set_visible(False)
-    axs.spines['top'].set_visible(False)
-
-    axs.axis('off')
-
-
-
-    for n,dn in enumerate(datanamesefg):
-        dbnbasiscomps = dbnbasiscomps_all[n]
-        # sx = dbnbasiscomps[bp[b,1],vib]>0
-        # plot skewed basis:
-        for r,color in zip(basisvectors,basiscolors):
-            if not r in [0,1]: continue
-            x0 = axs.get_xlim()[0]+0.03
-            y0 = axs.get_ylim()[0]+0.03
-            axs.plot( [x0,x0+(dbnbasiscomps[bp[b,0],r])],\
-                      [y0,y0+(dbnbasiscomps[bp[b,1],r])],\
-                      color=color,linewidth=4,alpha=0.9 )
-
-    axs = ax[2,2]
-    axs.set_xlim(axs.get_xlim())
-    axs.set_ylim(axs.get_ylim())
-
-    figs.labelaxis(axs,panel)
-
-
-
-
-
-
-
-
-    ax[1,1].axis('off')
-
-
-    fig.suptitle('Supplementary Figure 3')
-
-
-
-
-
-
-
-
-    save = 0 or globalsave
-    if save:
-        fig.savefig(resultpath+'Supp3_fr,evoked+crosstimedecoders+glm'+ext)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def supplementaryfigure5_unused():
-    
-    
-    datanames = ['ME108','ME110','ME112','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']
-
-
-
-    # FIGURE
-
-
-    fig,ax = plt.subplots(3,4,figsize=(36,24))
-
-
-
-    # behaviour single:
-
-#    dn = 'DT014'
-#    
-#    blv,bla = preprocess.getorderattended(dn)
-#    windowwidth = 100*pq.ms
-#    timeaveragewidth = 100*pq.ms
-#    timeaverage_range = ((np.array([windowwidth+T['dt'], windowwidth+timeaveragewidth+T['dt']])/T['dt']).magnitude).astype('int16')
-#    
-#    n_max_trial = 30
-#    triallist = np.arange(n_max_trial)+1
-#    titles = ['pre stimulus','on stimulus']
-#    colorlists = [ ['darkorange','chocolate'], ['tomato','firebrick'] ]
-#
-#
-#    _,_,_,_,cuetrainig,cue_est = preprocess.loadtrainingbehaviouraldata(dn)
-#
-#
-#    
-#
-#    for bl in [0,1]:
-#        blockorder = int(([blv[0],bla[0]][bl]-1)/2)
-#        ptrx = 0 # pre/on             trainingpoint in enumerate(trainingpoints):
-#
-#        # behavioural
-#        axs = ax[0, blockorder]
-#        axs.plot(triallist,cue_est[bl,0,:],lw=2,color='darkblue')
-##        axs.fill_between(np.arange(30)+1,cue_est[bl,0,:]-cue_est[bl,2,:],cue_est[bl,0,:]+cue_est[bl,2,:],\
-##                         color='darkblue',alpha=0.2)     # this was with symmetric variance estimate
-#        axs.fill_between(triallist,cue_est[bl,3,:],cue_est[bl,5,:],\
-#                         color='darkblue',alpha=0.4)      # this is with proper beta estimate
-#        axs.fill_between(triallist,cue_est[bl,2,:],cue_est[bl,4,:],\
-#                         color='darkblue',alpha=0.2)      # this is with proper beta estimate
-#        axs.set_xticks([1,15,30])
-#        axs.set_ylim(-0.04,1.04)
-#        axs.set_yticks([0,0.5,1])
-#        if bl==0: axs.set_ylabel('across sessions performance')
-#        axs.set_title('%s'%( ['initial','transition'][blockorder]  ))
-#        if bl==0:
-#            figs.labelaxis(axs,panels[0])
-#            axs.legend(['MLE/MAP','67% h.dens.cred.int.','95% h.dens.cred.int.'],frameon=False)
-#
-#
-#
-#
-#        # this is to show if there is a trend
-#        axs = ax[0,blockorder]
-#        color = 'green'
-#        n_samples = 1000
-#        x = np.concatenate([ np.ones(n_samples)*(t+1) for t in range(n_max_trial) ])
-#        y = []
-#        for t in range(n_max_trial):
-#            y.append(sp.stats.beta.rvs(cue_est[bl,6,t],cue_est[bl,7,t],size=n_samples))
-#        y = np.concatenate(y)
-#
-##        axs.plot(x,y,'o',alpha=0.15)        # uncomment to show the sampling
-#
-#        l = sp.stats.linregress(x,y)
-#        if l[3]<0.05:
-#            line = np.linspace(start=x.min(),stop=x.max(),num=2)
-#            axs.plot(line,l[0]*line+l[1],color=color,linewidth=2)
-#        else:
-#            line = np.linspace(start=x.min(),stop=x.max(),num=2)
-#            axs.plot(line,l[0]*line+l[1],'--',color=color,linewidth=2)
-#            
-#        xoffs = 22
-#    #        if sx in [3,4,5,7]: xoffs = 25
-#        if l[3]<0.001:
-#            axs.text(line[1]-xoffs,0.17,'intercept %5.3f, slope %5.3f\np<%5.3f, $R^2$=%4.2f'%((l[1],l[0],0.001,l[2]**2)),color=color)
-#        else:
-#            axs.text(line[1]-xoffs,0.17,'intercept %5.3f, slope 5.3f\np=%5.3f, $R^2$=%4.2f'%((l[1],l[0],l[3],l[2]**2)),color=color)
-#
-#
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# behaviour multiple mouse
-
-
-    panel = 'A'
-    datanames = ['ME108','ME110','ME112','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']
-    n_mice = len(datanames)
-
-    n_max_trials = 30
-    
-    aucdeltat = 750*pq.ms     # for the order length
-
-    crossgradients = 0.5*np.ones( (2,2,n_mice,n_max_trials) )      # starting values for empty trials, this is raw trial numbers
-#    crossgradients2 = 0.5*np.ones( (2,2,n_mice,trialcompress) )      # starting values for empty trials, this is timecompressed
-    blockorder = np.zeros((n_mice,2),dtype='int16')      # this will mean 0: attend visual first, 1: attend audio first
-    cx_decauc_pre = np.zeros((n_mice))       # this is context PRE: timeaveraged decoder accuracy
-    cuetrainings = []
-    cue_ests = []
-
-    
-    
-
-    for n,dn in enumerate(datanames):
-    
-        export_crossgradient = pickle.load(open('../cache/continuous/offstimgradient,cue,decodeprobs,savgol_%s-%s.pck'%(dn,continuous_method),'rb'))
-#        export_crossgradients[n][bl][ptrx,:,0]
-        
-        blv,bla = preprocess.getorderattended(dn)
-        
-        for bl in [0,1]:          # block visual, audio
-            n_cuetrials = export_crossgradient[bl].shape[1]
-            blockorder[n,bl] = int(([blv[0],bla[0]][bl]-1)/2)
-            for ptrx in [0,1]:    # pre, on
-                crossgradients[blockorder[n,bl],ptrx,n,:n_cuetrials] = export_crossgradient[bl][ptrx,:n_max_trials,2]
-
-
-        acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'context','all'),'rb'))
-        decsignal = acrossdecoder[1][:,0]     #-acrossdecoder[1][:,2]       # lower confidence bound
-        cx_decauc_pre[n] = neph.get_auctimenormalized(decsignal,T['stimstarttime']-aucdeltat,T['stimstarttime'])[0]        
-
-
-
-        _,_,_,_,cuetraining,cue_est = preprocess.loadtrainingbehaviouraldata(dn)
-
-        cuetrainings.append(cuetraining)
-        # [mice][init/trans,sessions,h+c/m+f,trials]           =(14)(2,8,2,30)
-
-        cue_ests.append(cue_est)       # ix 6,7 (from 0) will contain the beta parameters
-
-
-
-    # display aggregate behaviour and neural context decoder probability for all mice
-    resolution = 100
-    n_max_trial = 30
-    window = 5             # first few and last few trials
-    triallist = np.arange(n_max_trial)+1
-    probmap = np.zeros((resolution+1,n_max_trial))
-    mle = np.zeros(n_max_trial)
-    x = np.linspace(0,1,resolution+1)    # beta probability mesh
-    probmapwindowaverage = np.zeros( (2,2,resolution+1) )      # blockorder, first/last, probability density
-    probmapwindowaverage_s = np.zeros( (2,2,resolution+1) )      # same, just s.e.m.
-    R = np.zeros((2,n_mice,2))      # blockorder, mouse, tangent/intercept
-    labelcount = [0,0,0]
-    for bl in [0,1]:
-
-        axs = ax[0,bl]
-        
-        for n,dn in enumerate(datanames):
-#            if n!=11: continue
-#            print(datanames[n])
-
-#            print(cue_ests[n])
-            
-            for t in range(n_max_trial):
-#                print('beta a b', cue_ests[n][bl,6,t], cue_ests[n][bl,7,t])
-                
-#                if cue_ests[n][bl,6,t]==np.nan: print(dn,bl,t,'nan a')
-#                if cue_ests[n][bl,7,t]==np.nan: print(dn,bl,t,'nan b')
-                
-                # collect the posterior values at the resolution:
-#                posterior = sp.stats.beta.cdf(x[1:], cue_ests[n][bl,6,t], cue_ests[n][bl,7,t] ) - \
-#                            sp.stats.beta.cdf(x[:-1], cue_ests[n][bl,6,t], cue_ests[n][bl,7,t] )
-                            
-                posterior = sp.stats.beta.pdf( x, cue_ests[n][bl,6,t], cue_ests[n][bl,7,t] )
-#                print(posterior)
-#                posterior[posterior==np.nan]=0
-                
-                probmap[:,t] += posterior
-            
-            
-            
-            
-            # regression to test:
-#            n_samples = 100
-#            x_list = np.concatenate([ np.ones(n_samples)*(t+1) for t in range(n_max_trials) ])
-#            y = []
-#            for t in range(n_max_trials):
-#                samples = sp.stats.beta.rvs(cue_ests[n][bl,6,t],cue_ests[n][bl,7,t],size=n_samples)
-#                y.append(samples)
-#                
-#            y = np.concatenate(y)
-#    
-##                axs.plot(x_list,y,'o',alpha=0.15,color=color)        # uncomment to show the sampling
-#    
-#            l = sp.stats.linregress(x_list,y)
-#            line = np.array([triallist[0],triallist[-1]])
-#            negativeslope = (l[0]<0).astype('int16')
-#            color = ['chartreuse','salmon'][ negativeslope ]
-#            label = ['+ slope',' - slope'][ negativeslope ]
-#            if labelcount[negativeslope]>0: label=None
-#            if l[3]<0.05:
-#                axs.plot(line,l[0]*line+l[1],color=color,linewidth=1.5,label=label)
-#                labelcount[negativeslope] += 1
-#            else:
-#                color = 'gold'
-#                label = ' 0 slope'
-#                if labelcount[2]>0: label=None
-#                labelcount[2] += 1
-#                axs.plot(line,l[0]*line+l[1],color=color,linewidth=1.5,label=label)
-#            R[bl,n,:] = l[:2]
-
-
-
-
-    
-        probmap = probmap / n_mice / n_max_trial                 # make an actual average/mixture
-
-        # save the first and last density means
-        probmapwindowaverage[bl,0,:] = probmap[:,:window].mean(axis=1)
-        probmapwindowaverage[bl,1,:] = probmap[:,-window:].mean(axis=1)
-        probmapwindowaverage_s[bl,0,:] = 2*probmap[:,:window].std(axis=1)/np.sqrt(window)
-        probmapwindowaverage_s[bl,1,:] = 2*probmap[:,-window:].std(axis=1)/np.sqrt(window)
-
-        cumprobmap = np.cumsum(probmap,axis=0) / np.sum(probmap,axis=0)#          * (x[1]-x[0])
-        
-        
-        # get contours for the mle and highest density credible intervals 67 and 95%
-        c_l = np.zeros((2,n_max_trial))
-        c_u = np.zeros((2,n_max_trial))
-        mle = np.zeros(n_max_trial)
-        for t in range(n_max_trial):
-            mle[t] = x[np.argmax(probmap[:,t])]
-            c_l[0,t], c_u[0,t] = neba.hdci(ppf=lambda q: neba.empiricalppf(q,cumprobmap[:,t],x), alpha=19/20,resolution=resolution)  # 95% hdci
-            c_l[1,t], c_u[1,t] = neba.hdci(ppf=lambda q: neba.empiricalppf(q,cumprobmap[:,t],x), alpha=2/3,resolution=resolution)  # 67% hdci
-
-
-#        print(c_l,c_u)
-#        s = axs.imshow(probmap,aspect='auto',origin='lower',cmap='viridis',vmax=0.2,vmin=0)
-        mX,mY = np.meshgrid( triallist, x )
-        s = axs.contourf(mX,mY,probmap,levels=100,vmin=0,vmax=0.15)
-        axs.plot(triallist,mle,lw=2,color='white',label='MLE/MAP')
-        axs.plot(triallist,c_l[1,:],'--',color='white',label='67% h.dens.cred.int.')
-        axs.plot(triallist,c_u[1,:],'--',color='white')
-        axs.plot(triallist,c_l[0,:],'--',color='grey',label='95% h.dens.cred.int.')
-        axs.plot(triallist,c_u[0,:],'--',color='grey')
-        
-        if bl==0:
-            leg = axs.legend(frameon=False)
-            for text in leg.get_texts(): text.set_color('white')
-        
-        axs.set_title('%s'%( ['initial\nbehavioural performance','transition\nbehavioural performance'][bl]  ))
-        axs.set_xticks([1,15,30])
-        axs.set_yticks([0,0.5,1])
-        axs.set_yticklabels(['0','0.5','1'])
-#        axcb = fig.colorbar(s,ax=axs)#,ticks=[0,0.1,0.2])
-
-    
-    
-        if bl==0:
-            axs.set_ylabel('posterior across sessions and mice')
-            figs.labelaxis(axs,panel)
-    
-    
-    
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    panel = 'B'
-
-    # load context PRE:
-    contextpre = []
-    for n,dn in enumerate(datanames):
-        contexttimegroups = []
-#        timestarts_idx = int((np.arange(0,6001,1500)*pq.ms / np.array(T['dt'])).magnitude)     # cutpoints
-        timestarts_idx = np.arange(0,601,150,dtype='int16')
-        comparison = 'context'
-        acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,comparison,'all'),'rb'))
-        for ti in range(4):
-            contexttimegroups.append(      acrossdecoder[1][ timestarts_idx[ti]:timestarts_idx[ti+1], 0 ].mean()   )
-        contextpre.append(contexttimegroups[0])
-
-    contextpre = np.array(contextpre)
-
-
-
-
-
-
-
-    # collect regression behavioural data as long lists for each animal (i.e. at each context PRE value)
-    initials = []
-    transitions = []
-    for n,dn in enumerate(datanames):
-        initials.append( [ np.reshape(cuetrainings[n][0][:,0,:window],-1),\
-                           np.reshape(cuetrainings[n][0][:,0,-window:],-1) ]   )
-        transitions.append( [ np.reshape(cuetrainings[n][1][:,0,:window],-1),\
-                              np.reshape(cuetrainings[n][1][:,0,-window:],-1) ] )
-
-        
-    X_list = [[],[]]       # as below: context pre values
-    Y_list = [[],[]]       # these will store the per session first and last data for regression
-    Y_m_list = []
-    for bl in [0,1]:          # initial and transition block
-        period = [initials,transitions][bl]         # shortcut call
-        
-        Y = []
-        Ys = []
-        for i in [0,1]:          # first and last, on the same figure
-            
-
-            
-            # behaviour for all mice
-            X_list[i].append(   np.concatenate( [ [  contextpre[n] for d in range( len(period[n][i]) ) ] \
-                               for n in range(n_mice)  ] )  )
-            Y_list[i].append( np.concatenate(  [ [  period[n][i][d] for d in range( len(period[n][i]) ) ] \
-                               for n in range(n_mice)  ]  ) )
-                    # Y_list will be Y_list[block][first/last][sessions*window]
-
-            
-            Y.append(  [ (period[n][i]).mean()  \
-                               for n in range(n_mice)  ]  )
-            Ys.append(  [ (period[n][i]).std()/np.sqrt( len(period[n][i]) )  \
-                               for n in range(n_mice)  ]  )
-        Y_m_list.append(Y)         # this will be [bl][i]
-
-    # uses Y_list from above
-    # Y_list is Y_list[block][first/last][sessions*window]
-    colors = ['seagreen','mediumblue']
-
-    for bl in [0,1]:    # initial and transition block
-        for i in [0,1]: # first and last
-            axs = ax[0,bl+2]
-            x = X_list[i][bl]
-            y = Y_list[i][bl]
-            y_m = Y_m_list[bl][i]
-                        # or using: #   R[bl,:,1]        # 0 slope 1 intercept
-            axs.scatter(contextpre,y_m,s=150,marker='o',color=colors[i],alpha=0.8)
-            axs.set_xlim(0.49,1.01)
-            axs.set_ylim(0.49,1.01)
-            axs.set_xticks([0.5,1.0])
-            axs.set_yticks([0.5,1.0])
-            axs.set_title(['initial\n','transition\n'][bl])
-            axs.set_xlabel('context PRE', labelpad=0.1, verticalalignment='bottom')
-    #        axs.set_ylabel(ylabels[bx], labelpad=0, verticalalignment='top')
-    
-            l = sp.stats.linregress(x,y)
-            if l[3]<0.05:
-                line = np.linspace(start=x.min()*0.8,stop=x.max()*1.2,num=2)
-                axs.plot(line,l[0]*line+l[1],color=colors[i],linewidth=2)
-            else:
-                line = np.linspace(start=x.min()*0.8,stop=x.max()*1.2,num=2)
-                axs.plot(line,l[0]*line+l[1],'--',color=colors[i],linewidth=2)
-                
-            xoffs = 0.35
-    #        if sx in [3,4,5,7]: xoffs = 25
-            if l[3]<0.001:
-                axs.text(line[1]-xoffs,line[1]*0.49-i/30,'p<%5.3f, $R^2$=%4.2f'%((0.001,l[2]**2)),color=colors[i])
-            else:
-                axs.text(line[1]-xoffs,line[1]*0.49-i/30,'p=%5.3f, $R^2$=%4.2f'%((l[3],l[2]**2)),color=colors[i])
-            
-        if bl==0:
-            axs.legend(['first %d trials'%window,'last %d trials'%window], frameon=False,loc=2)
-            axs.set_ylabel('across sessions MAP per mice',verticalalignment='top',labelpad=0)
-            figs.labelaxis(axs,panel)
-#            axs.set_title('n=%d'%14)
-        figs.plottoaxis_crosshair(axs,0.5,0.5)
-        axs.spines['right'].set_visible(False)
-        axs.spines['top'].set_visible(False)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # neural data
-    # multiple mouse
-
-
-    panel = 'D'
-    n_mice = len(datanames)
-
-    trialcompress = 30
-    
-    aucdeltat = 750*pq.ms     # for the order length
-
-    crossgradients = 0.5*np.ones( (2,2,n_mice,100) )      # starting values for empty trials
-    crossgradients2 = 0.5*np.ones( (2,2,n_mice,trialcompress) )      # starting values for empty trials
-    blockorder = np.zeros((n_mice,2),dtype='int16')      # this will mean 0: attend visual first, 1: attend audio first
-    decauc_pre = np.zeros((n_mice))
-    
-    ls = np.zeros((2,2,n_mice,2))
-    for n,dn in enumerate(datanames):
-    
-        export_crossgradient = pickle.load(open('../cache/continuous/offstimgradient,cue,decodeprobs,savgol_%s-%s.pck'%(dn,continuous_method),'rb'))
-#        export_crossgradients[n][bl][ptrx,:,0]
-        
-        blv,bla = preprocess.getorderattended(dn)
-        
-        for bl in [0,1]:          # block visual, audio
-            n_cuetrials = export_crossgradient[bl].shape[1]
-            blockorder[n,bl] = int(([blv[0],bla[0]][bl]-1)/2)
-            for ptrx in [0,1]:    # pre, on
-                crossgradients[blockorder[n,bl],ptrx,n,:n_cuetrials] = export_crossgradient[bl][ptrx,:,2]
-                crossgradients2[blockorder[n,bl],ptrx,n,:] = np.interp( np.linspace(0,n_cuetrials-1,trialcompress), \
-                              np.arange(n_cuetrials), export_crossgradient[bl][ptrx,:,2] )
-                l = sp.stats.linregress(np.arange(trialcompress),crossgradients2[blockorder[n,bl],ptrx,n,:])
-                ls[blockorder[n,bl],ptrx,n,:] = l[:2]
-
-
-        acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'context','all'),'rb'))
-        decsignal = acrossdecoder[1][:,0]     #-acrossdecoder[1][:,2]       # lower confidence bound
-        decauc_pre[n] = neph.get_auctimenormalized(decsignal,T['stimstarttime']-aucdeltat,T['stimstarttime'])[0]        
-        
-                
-    
-    orders = np.argsort(ls[1,1,:,1])[::-1]     # cue 3, onstimulus,   all mice,    slope/intercept
-    orders = np.argsort(ls[1,1,:,1]+ls[1,1,:,0]*15+crossgradients2[blockorder[n,1],1,n,-1]+\
-                        crossgradients2[blockorder[n,0],1,n,-1]\
-                        )[::-1]     # cue 3, prestimulus,   all mice,    slope/intercept
-    orders = np.argsort(decauc_pre)[::-1]
-    
-    
-    blocklabels = ['initial\nneural decoder','transition\nneural decoder']
-    timeperiodlabels = [' PRE',' ON']
-        
-    for blo in [0,1]:          # block cue 1, cue 3
-        for ptrx in [0,1]:    # pre, on
-            
-            G = crossgradients[blo,ptrx,orders,:]
-            
-            axs = ax[2,blo+2*ptrx]
-
-            G = crossgradients2[blo,ptrx,orders,:]
-            
-            im = axs.imshow(G,vmin=0.0,vmax=1.0,cmap='RdBu',aspect='auto')
-            figs.plottoaxis_notickmarks(axs)
-
-
-            axs.set_title(blocklabels[blo]+timeperiodlabels[ptrx])
-            
-
-    axs = ax[2,0]
-    figs.labelaxis(axs,panel)
-    axs.set_ylabel('mice, ordered by context PRE')
-    axs.set_xlabel('unimodal cueing session trials')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# neural all mice, beta plot
-    crossgradients = 0.5*np.ones( (2,2,n_mice,n_max_trials) )      # starting values for empty trials, this is raw trial numbers
-#    crossgradients2 = 0.5*np.ones( (2,2,n_mice,trialcompress) )      # starting values for empty trials, this is timecompressed
-    blockorder = np.zeros((n_mice,2),dtype='int16')      # this will mean 0: attend visual first, 1: attend audio first
-    max_trials_ofallmice = [0,0]
-    export_crossgradient = []
-    for n,dn in enumerate(datanames):
-    
-        export_crossgradient.append(pickle.load(open('../cache/continuous/offstimgradient,cue,decodeprobs,savgol_%s-%s.pck'%(dn,continuous_method),'rb')))
-#        export_crossgradients[n][bl][ptrx,:,0]
-        
-        blv,bla = preprocess.getorderattended(dn)
-        
-        for bl in [0,1]:          # block visual, audio
-            n_cuetrials = export_crossgradient[n][bl].shape[1]
-            blockorder[n,bl] = int(([blv[0],bla[0]][bl]-1)/2)
-            max_trials_ofallmice[blockorder[n,bl]] = max(n_cuetrials, max_trials_ofallmice[blockorder[n,bl]])
-            for ptrx in [0,1]:    # pre, on
-                crossgradients[blockorder[n,bl],ptrx,n,:n_cuetrials] = export_crossgradient[n][bl][ptrx,:n_max_trials,2]
-
-
-        acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'context','all'),'rb'))
-        decsignal = acrossdecoder[1][:,0]     #-acrossdecoder[1][:,2]       # lower confidence bound
-        cx_decauc_pre[n] = neph.get_auctimenormalized(decsignal,T['stimstarttime']-aucdeltat,T['stimstarttime'])[0]        
-
-
-
-        _,_,_,_,cuetraining,cue_est = preprocess.loadtrainingbehaviouraldata(dn)
-
-        cuetrainings.append(cuetraining)
-        # [mice][init/trans,sessions,h+c/m+f,trials]           =(14)(2,8,2,30)
-
-        cue_ests.append(cue_est)       # ix 6,7 (from 0) will contain the beta parameters
-
-
-    panel = 'C'
-    ptrx = 0  # only PRE
-    
-    probability_resolution = 100
-
-    for bl in [0,1]:
-        
-        beta_a = np.ones(max_trials_ofallmice[bl])
-        beta_b = np.ones(max_trials_ofallmice[bl])
-        x = np.linspace(0,1,probability_resolution+1)
-        triallist = np.arange(max_trials_ofallmice[bl])+1
-        sea = np.meshgrid( x, np.linspace(1,max_trials_ofallmice[bl]) )
-        pr = np.zeros( (probability_resolution+1,max_trials_ofallmice[bl]) )
-        
-        for n in range(n_mice):
-            p_m = export_crossgradient[n][blockorder[n,bl]][ptrx,:,0]
-            p_s = export_crossgradient[n][blockorder[n,bl]][ptrx,:,1]
-            for trx in range(len(p_m)):
-                beta_a[trx] += p_m[trx]*1
-                beta_b[trx] += (1-p_m[trx])*1
-        for trx in range(len(beta_a)):
-            pr[:,trx] = sp.stats.beta.pdf( x, beta_a[trx], beta_b[trx] )
-        pr = pr / np.sum(pr,axis=0)
-        cumprobmap = np.cumsum(pr,axis=0)               #          * (x[1]-x[0])
-        
-        
-        # get contours for the mle and highest density credible intervals 67 and 95%
-        c_l = np.zeros((2,max_trials_ofallmice[bl]))
-        c_u = np.zeros((2,max_trials_ofallmice[bl]))
-        mle = np.zeros(max_trials_ofallmice[bl])
-        for t in range(max_trials_ofallmice[bl]):
-            mle[t] = x[np.argmax(pr[:,t])]
-            c_l[0,t], c_u[0,t] = neba.hdci(ppf=lambda q: neba.empiricalppf(q,cumprobmap[:,t],x), alpha=19/20,resolution=resolution)  # 95% hdci
-            c_l[1,t], c_u[1,t] = neba.hdci(ppf=lambda q: neba.empiricalppf(q,cumprobmap[:,t],x), alpha=2/3,resolution=resolution)  # 67% hdci
-
-
-
-
-        axs = ax[1,bl]
-        handle = axs.contourf(triallist,x,pr,levels=100)
-#        axs.plot(pr)       # debug
-#        fig.colorbar(handle,ax=axs)
-
-        axs.plot(triallist,mle,lw=2,color='white',label='MLE/MAP')
-        axs.plot(triallist,c_l[1,:],'--',color='white',label='67% h.dens.cred.int.')
-        axs.plot(triallist,c_u[1,:],'--',color='white')
-        axs.plot(triallist,c_l[0,:],'--',color='grey',label='95% h.dens.cred.int.')
-        axs.plot(triallist,c_u[0,:],'--',color='grey')
-        if bl==0:
-            leg = axs.legend(frameon=False)
-            for text in leg.get_texts(): text.set_color('white')
-    
-
-#        axs.set_xticks( [ [1,30,max_trials_ofallmice[bl]], [1,30,60,max_trials_ofallmice[bl]] ][bl] )
-        axs.set_xticks( [1,15,30] )
-        axs.set_xlim([1,30])
-        axs.set_yticks([0,0.5,1])
-#        axs.set_xlim([0.1,max_trials_ofallmice[bl]+0.9])
-
-        axs.set_title(['initial\nneural decoder PRE','transition\nneural decoder PRE'][bl])
-        if bl==0:
-            axs.set_ylabel('correct context probability')
-            figs.labelaxis(axs,panel)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# These are pairwise statistics for each mouse
-
-#
-#    panel = 'E'
-#        
-#    X_list = [[],[]]       # as below: context pre values
-#    Y_list = [[],[]]       # these will store the per session first and last data for regression
-#    Y_m_list = []
-#    for bl in [0,1]:          # initial and transition block
-#        period = [initials,transitions][bl]         # shortcut call
-#        
-#        axs = ax[2,bl]
-#        
-#        Y = []
-#        Ys = []
-#        for i in [0,1]:          # first and last, on the same figure
-#            
-#
-#            
-#            # behaviour for all mice
-#            X_list[i].append(   np.concatenate( [ [  contextpre[n] for d in range( len(period[n][i]) ) ] \
-#                               for n in range(n_mice)  ] )  )
-#            Y_list[i].append( np.concatenate(  [ [  period[n][i][d] for d in range( len(period[n][i]) ) ] \
-#                               for n in range(n_mice)  ]  ) )
-#                    # Y_list will be Y_list[block][first/last][sessions*window]
-#
-#            
-#            Y.append(  [ (period[n][i]).mean()  \
-#                               for n in range(n_mice)  ]  )
-#            Ys.append(  [ (period[n][i]).std()/np.sqrt( len(period[n][i]) )  \
-#                               for n in range(n_mice)  ]  )
-#        Y_m_list.append(Y)         # this will be [bl][i]
-#            
-#            
-#        m = np.array(Y)
-#        s = np.array(Ys)
-#        print(m.shape,s.shape)
-#        d = m[1]-m[0]
-#        ci = 2*(s[1]+s[0])
-#        crit = (d>ci).astype('int16')
-##        axs.plot(i*np.ones(n_mice),Y,'o-')
-#        for n,dn in enumerate(datanames):
-#            if crit[n]:
-#                axs.errorbar(x=[0,1],y=m[:,n],yerr=s[:,n],color='darkgreen',capsize=3)
-#            else:
-#                axs.errorbar(x=[0,1],y=m[:,n],yerr=s[:,n],color='darkred',capsize=3)
-#            axs.text(-0.1,m[0,n],dn, fontsize='x-small',horizontalalignment='right',verticalalignment='center')
-#        axs.set_yticks([0.5,1])
-#        axs.set_ylim(0.44,1.01)
-#        axs.set_xticks([0,1])
-#        axs.set_xticklabels(['first %d'%window,'last %d'%window])
-#        axs.set_xlim(-0.5,1.5)
-#        figs.plottoaxis_chancelevel(axs,0.5)
-#        if bl==0:
-#            axs.set_ylabel('behaviour\nfraction correct')
-#        
-#            figs.labelaxis(axs,panel)
-#
-#
-#
-#
-#
-#    if 0:
-#    # visualize HDCI change between first window and last window difference
-#        panel = 'Z+'
-#        initials = []
-#        transitions = []
-#        for n,dn in enumerate(datanames):
-#            initials.append( [ np.reshape(cuetrainings[n][0][:,0,:window],-1),\
-#                               np.reshape(cuetrainings[n][0][:,0,-window:],-1) ]   )
-#            transitions.append( [ np.reshape(cuetrainings[n][1][:,0,:window],-1),\
-#                                  np.reshape(cuetrainings[n][1][:,0,-window:],-1) ] )
-#    
-#    
-#    
-#        colors = ['darkturquoise','goldenrod']
-#        labels = ['first %d'%window,'last %d'%window]
-#        
-#        for bl in [0,1]:          # initial and transition block
-#            period = [initials,transitions][bl]         # shortcut call
-#            
-#            axs = ax[3,bl+2]
-#            
-#            Y = []
-#            Ys = []
-#            for i in [0,1]:          # first and last, on the same figure
-#                
-#                axs.plot(x,probmapwindowaverage[bl,i,:],lw=2,color=colors[i],label=labels[i])
-#                axs.fill_between(x,probmapwindowaverage[bl,i,:]-probmapwindowaverage_s[bl,i,:],\
-#                                   probmapwindowaverage[bl,i,:]+probmapwindowaverage_s[bl,i,:],\
-#                                   color=colors[i],alpha=0.2)
-#    
-#                
-#                # behaviour for all mice
-#            
-#            axs.set_ylim(0,0.2)
-#            axs.set_yticks([0,0.1,0.2])
-#            axs.set_xticks([0,0.5,1])
-#            
-#            if bl==0: axs.legend(frameon=False)
-#    #        if bl==0: figs.labelaxis(axs,panel)
-#        
-#
-#
-#
-
-
-
-
-
-
-
-    fig.suptitle('Supplementary Figure 4')
-
-
-
-
-
-
-    save = 0 or globalsave
-    if save:
-        fig.savefig(resultpath+'Supp4_context,cueblockgradients'+ext)
-
-
-
-
-
-
-
-
-
-# FIG Supp5 old error trials
-def supplementaryfigure5b_unused():
-    # show that discrimination of visual stimuli decreases: project to dbnv
-
-    panels = ['A','B']
-
-    # datanames = ['ME103','ME110','ME113','DT008','DT009','DT014','DT017','DT018','DT019','DT020','DT021','DT022','DT030','DT031','DT032']                 # with ks2 spike sorting 
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
-    n_mice = len(datanames)
-
-    # activities_all will be [n_mice][comparison][performance] = 15 x 4 x 4
-    activities_all,activities_aggregate = pickle.load(open('../cache/subspaces/dbnvprojections-visual,behaviourdifference-%s-%dms.pck'%(continuous_method,T['dt']),'rb'))
-
-    #        colors = ['navy','darkturquoise','darkred','fuchsia']
-    colors = ['b','c','m','r']
-    # basiscolors = ['navy','blue','dodgerblue','fuchsia','sienna','gold','darkorange']
-    # basisvectors = [0,1]      # indexes of dbprojections, dbprojections was:
-    labels = [\
-               ['attended visual dec. normal','attended visual choice',\
-                'attend visual,  45, hit','attend visual,  45, miss','attend visual, 135, corr.rej.','attend visual, 135, false alarm'], \
-               ['','',\
-                ' hit',' miss',' correct rejection',' false alarm'] \
-             ]
-
-
-    # plot each mouse separately
-    n_panels = int(np.ceil(np.sqrt(n_mice)))
-
-    cx = 0    # choose the context conditioned block (0), or context (1) for displaying projected activities
-    lx = 1     # labels for the conditions  0 visual        1 context
-
-
-    
-    dprimes = np.zeros((n_mice,2))   #    (n_mice x {45,135})
-    for n,dn in enumerate(datanames):
-        dprimes[n,:] = [ nedi.dprime_normal(activities_all[n][cx][0], activities_all[n][cx][1]),\
-                         nedi.dprime_normal(activities_all[n][cx][2], activities_all[n][cx][3]) ]
-
-
-    if 0:
-        fig,ax = plt.subplots(n_panels,n_panels,figsize=(12*n_panels,8*n_panels))
-        for n,dn in enumerate(datanames):
-            print(dn,'activity len',[len(activities_all[n][cx][i]) for i in [0,1,2,3]])
-    
-            # print(dn,'activity vector@ hmcf',activities_all[n][cx])
-    
-            # find significantly different mice with behaviour
-            s45,p45 = sp.stats.ttest_ind(activities_all[n][cx][0], activities_all[n][cx][1], equal_var=False)
-            s135,p135 = sp.stats.ttest_ind(activities_all[n][cx][2], activities_all[n][cx][3], equal_var=False)
-    
-            
-            axs = ax[int(np.floor(n/n_panels)),n%n_panels]
-            
-        
-            for k in [2,3]:            # range(len(activities_all[n][cx]))   # hit, miss, corr rej, false al
-                axs.hist(activities_all[n][cx][k],bins=10,color=colors[k],label=labels[lx][2+k],alpha=0.5)
-            # axs.set_xlim(-2,2)
-            axs.plot([0,0],[0,axs.get_ylim()[1]],'--',color='grey')
-            axs.legend(frameon=False)
-            # axs.set_title('%s; 45: p=%5.4f, 135: p=%5.4f'%(dn,p45,p135,))
-            axs.set_title('%s; p=%5.4f'%(dn,p135))
-    
-    
-        save = 0
-        if save:
-            fig.savefig(resultpath+'Supp3_visualdiscrimination,behaviourconditioned-singlemice_%s_%dms%dms'%(continuous_method,T['dt'].magnitude,T['bin'].magnitude)+ext)
-            
-            
-            
-    if 1:            
-        fig,ax = plt.subplots(1,3,figsize=(3*8,1*8))
-
-        # find out statistically if performance makes a difference in discrimination peaks
-        cx = 0    # only one projection
-        s45,p45 = sp.stats.ttest_ind(activities_aggregate[cx][0], activities_aggregate[cx][1], equal_var=False)
-        s135,p135 = sp.stats.ttest_ind(activities_aggregate[cx][2], activities_aggregate[cx][3], equal_var=False)
-        # s45,p45,s135,p135 = 0,0,0,0
-        print(p45,p135)
-    
-        # selection = np.abs(dprimes)<1
-        for d in [0,1]:       # separate 45 and 135 degrees
-            axs = ax[d]
-            for k in d*2+np.array([0,1]):
-                # print(k,'hmcf'[k]+':',len(activities_aggregate[cx][k]))
-                axs.hist(activities_aggregate[cx][k],bins=20,color=colors[k],label=labels[lx][2+k],alpha=0.5)
-                m = np.mean(activities_aggregate[cx][k])
-                e = 2*np.std(activities_aggregate[cx][k])/np.sqrt(len(activities_aggregate[cx][k]))
-                axs.plot([m,m],[0,48],lw=3,color=colors[k])
-                axs.plot([m-e,m+e],[10,10],lw=7,color=colors[k])
-            axs.set_xlim(-3,3)
-            axs.set_ylim(0,60)
-            axs.plot([0,0],[0,axs.get_ylim()[1]],'--',color='grey')
-            axs.legend(frameon=False)
-            # axs.set_title('%d mice; %d: p=%5.4f'%(n_mice,[45,135][d],(p45,p135)[d]))
-            axs.text(1,10,'p=%.2e'%((p45,p135)[d]))
-        
-            # axs = ax[1]
-            # axs.hist( dprimes[:,d], color=colors[2*d], bins=5, label=['45 hit-miss','135 corr.rej.-fal.al.'][d], alpha=0.5 )
-        axs.legend(frameon=False,fontsize='small')
-        axs.set_xlabel('activity projected\nonto visual DV')
-        axs.set_ylabel('number of trials')
-        
-        figs.labelaxis(axs,panels[0])
-
-        
-        
-        axs = ax[2]
-        
-        for n,dn in enumerate(datanames):
-            s135,p135 = sp.stats.ttest_ind(activities_all[n][cx][2], activities_all[n][cx][3], equal_var=False)
-            m = [activities_all[n][cx][2].mean(),activities_all[n][cx][3].mean()]
-            e = [activities_all[n][cx][2].std()*2/np.sqrt(len(activities_all[n][cx][2])),\
-                 activities_all[n][cx][3].std()*2/np.sqrt(len(activities_all[n][cx][3]))]
-            
-            if p135>0.05:
-                if m[0]<m[1]: color = 'green'
-                elif m[0]>m[1]: color = 'red'
-            else: color = 'grey'
-
-            print(m,e)    
-            axs.errorbar( np.array([0,1])+n*0.001, m, e, color=color, lw=2 )
-
-        axs.set_xlim(-0.1,1.1)
-
-        figs.plottoaxis_crosshair(axs,0)
-
-        axs.set_xticks([0,1]); axs.set_xticklabels(['correct\nrejection','false\nalarm'])
-        axs.set_yticks(np.arange(-3,3.1))
-        axs.set_ylabel('# of trials')
-        axs.set_ylabel('activity projected\nonto visual DV')
-
-        figs.labelaxis(axs,panels[1])
-        
-        
-        # for k in [0,1]:
-        #     x = dprimes[:,k]
-        #     y = behavfrac[:,k]
-
-        #     axs.scatter(x,y,marker='o',s=150,color=colors[2*k],alpha=0.8,label=['hit/45','corr.rej./135'][k])
-        #     # for n,dn in enumerate(datanames):
-        #     #     axs.text(x,y,dn,fontsize='x-small',color=colors[2*k],alpha=0.3)
-    
-    
-        #     l = sp.stats.linregress(x,y)
-        #     print(k,l)
-        #     if l[3]<0.05:
-        #         line = np.linspace(start=x.min()*0.8,stop=x.max()*1.2,num=2)
-        #         axs.plot(line,l[0]*line+l[1],color=colors[2*k],linewidth=2)
-        #     else:
-        #         line = np.linspace(start=x.min()*0.8,stop=x.max()*1.2,num=2)
-        #         axs.plot(line,l[0]*line+l[1],'--',color=colors[2*k],linewidth=2)
-                
-        #     xoffs = 1
-        # #        if sx in [3,4,5,7]: xoffs = 25
-        #     if l[3]<0.05:
-        #         axs.text(line[1]-xoffs,0.47+k*0.1,'p<%5.3f, $\\rho$=%4.2f'%((0.001,l[2])),color=colors[2*k])
-        #     else:
-        #         axs.text(line[1]-xoffs,0.47+k*0.1,'p=%5.3f, $\\rho$=%4.2f'%((l[3],l[2])),color=colors[2*k])
-        
-        # axs.legend(frameon=False)
-        # axs.set_xlabel('signed d-prime')
-        # axs.set_ylabel('behaviour success')
-        
-        # fig.suptitle(taskaspects[dbprojections[0]])
-        
-        fig.tight_layout()
-        
-        save = 0 or globalsave
-        if save:
-            fig.savefig(resultpath+'Supp5_visualdiscrimination,behaviourconditioned-singlemice'+ext)
-
-
-
-
-
-
-
-
-
-
-
-#       FIG   Supp5     Confounders
-
-def supplementaryfigure6_unused():
-
-    
-    datanamesefg = ['ME108','ME110','ME112','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT030','DT031','DT032']
-    variablecolors = ['navy','mediumvioletred']    
-
-#   N                  # explained variance from predictive GLM
-    modeldisplayP = np.array([17,0+4,2+4, 18,8+0+4,8+2+4],dtype='int16')              # find the individuals subtracted models, and compare to the full model;    with runspeed: 18, 0+4+8, 2+4+8
-    modeldisplayQ = np.array([4,5,6,7,12,13,14,15,16,17],dtype='int16')
-    contextcomp_idx = [ [2,8], [6,9] ]       # first two is without run, last two is with run
-    
-#    M = np.zeros(n_mice)
-    n_mice = len(datanamesefg)
-    cxpre = np.zeros(n_mice)
-
-    for n,dn in enumerate(datanamesefg):
-        mc,r,a,d = pickle.load(open('../cache/glm/glm_predictive,modelselection_%s'%(dn),'rb'))
-        if n==0:
-            explainedvariance = np.zeros((n_mice,len(modeldisplayP)))
-            aic = np.zeros((n_mice,len(modeldisplayP)))
-            R = np.zeros((n_mice,len(modeldisplayQ)))
-            A = np.zeros((n_mice,len(modeldisplayQ)))
-
-        explainedvariance[n,:] = r[modeldisplayP]
-        aic[n,:] = a[modeldisplayP]
-
-        R[n,:] = r[modeldisplayQ]
-        A[n,:] = a[modeldisplayQ]
-
-        acrossdecoder = pickle.load(open('../cache/continuous/responsedecodes,angles-%s_%s-%s-%s-%s,%s.pck'%('allexpcond','all',dn,continuous_method,'context','all'),'rb'))
-        cxpre[n] = neph.get_auctimenormalized(acrossdecoder[1][:,0],T['starttime'],T['stimstarttime'])[0]
-        # cxpre holds context pre variable for each mice
-
-
-
-
-
-
-
-
-
-
-    # load decoders for task variables from runspeed
-    taskaspects = ['visual','audio','context','choice']
-    aucdeltat = 750*pq.ms     # for the order length
-    aucdeltaix = int((aucdeltat / T['dt']).magnitude)
-    features = []         # this will be (n_mice,taskaspect,trajectoryposition) = (14,4,4)
-    for n,dn in enumerate(datanamesefg):
-        blv,bla = preprocess.getorderattended(dn)
-        featurevector = []
-        for cx,comparison in enumerate(taskaspects):
-            acrossdecoder = pickle.load(open('../cache/phys/rundecodes-%s-%s-%s.pck'%(dn,continuous_method,comparison),'rb'))
-
-            rundecsignal = acrossdecoder[1][:,0]     #-acrossdecoder[1][:,2]       # change to 2 for lower confidence bound or mean to the left
-            rundecsignal_var = acrossdecoder[1][:,1].mean()**2       # this is the decoder cross validation variance
-            
-            rundecauc_pre = neph.get_auctimenormalized(rundecsignal,T['stimstarttime']-aucdeltat,T['stimstarttime'])[0]
-            rundecauc_early = neph.get_auctimenormalized(rundecsignal,T['stimstarttime'],T['stimendtime']/2+T['stimstarttime']/2)[0]
-            rundecauc_late = neph.get_auctimenormalized(rundecsignal,T['stimendtime']/2+T['stimstarttime']/2,T['stimendtime'])[0]
-            rundecauc_post = neph.get_auctimenormalized(rundecsignal,T['stimendtime'],T['stimendtime']+aucdeltat)[0]
-
-            rundecauc_pre_ci = np.sqrt(rundecsignal[T['stimstart_idx']-aucdeltaix:T['stimstart_idx']].var()+rundecsignal_var)/np.sqrt(aucdeltaix)
-            rundecauc_early_ci = np.sqrt(rundecsignal[T['stimstart_idx']:int(T['stimstart_idx']/2+T['stimstart_idx']/2)].var()+rundecsignal_var)/np.sqrt(aucdeltaix)
-            rundecauc_late_ci = np.sqrt(rundecsignal[int(T['stimstart_idx']/2+T['stimend_idx']/2):T['stimstart_idx']].var()+rundecsignal_var)/np.sqrt(aucdeltaix)
-            rundecauc_post_ci = np.sqrt(rundecsignal[T['stimend_idx']:T['stimend_idx']+aucdeltaix].var()+rundecsignal_var)/np.sqrt(aucdeltaix)
-
-            featurevector.append( [  rundecauc_pre, rundecauc_early, rundecauc_late, rundecauc_post,\
-                                     rundecauc_pre_ci, rundecauc_early_ci, rundecauc_late_ci, rundecauc_post_ci ])
-
-        features.append(np.array(featurevector))
-
-#    print(features)
-
-    features = np.array(features)    # (mice,taskaspect,preearlylatepost+same w/ci)
-
-
-
-
-    fig,ax = plt.subplots(1,3,figsize=(3*8,1*8))
-
-
-
-
-
-
-
-
-
-
-    # predictive
-    panel = 'A'
-#    axs = ax[3,2]
-#    axs.set_ylim(0,0.2)
-#    axs.set_xticks(np.arange(n_mice)); axs.set_xticklabels(datanamesefg,rotation=45)
-#    axs.set_yticks([0,0.1,0.2])
-#    axs.set_ylabel('explained variance by visual predictor')
-
-    ordercxpre = np.argsort(cxpre)#[::-1]
-
-    axs = ax[0]
-#    axs.bar(np.arange(n_mice)-0.2,explainedvariance[ordercxpre,0],width=0.4,color=variablecolors[0],label='visual')
-#    axs.bar(np.arange(n_mice)+0.2,explainedvariance[ordercxpre,1],width=0.4,color=variablecolors[1],label='context')
-    
-    axs.boxplot(x=explainedvariance, positions=[0,1,2,4,5,6], notch=True)
-    
-    
-#    axs.boxplot(explainedvariance,labels=['visual','context'], notch=True)
-#    xlabels = [ datanamesefg[n] for n in ordercxpre ]
-#    axs.set_ylim(0,0.5)
-    axs.set_xlim(-1,7)
-    axs.set_xticks([0,1,2,4,5,6])
-    axs.set_xticklabels(['full','- visual','- context','full w/run','- visual','- context'],rotation=30)
-#    axs.text(1,-0.02,'without locomotion',horizontalalignment='center')
-#    axs.text(5,-0.02,'with locomotion',horizontalalignment='center')
-    
-#    axs.set_xticklabels([])
-    axs.set_yticks([0,0.2,0.4])
-    axs.set_ylabel('explained variance')
-    figs.plottoaxis_chancelevel(axs,0)
-
-    axs.legend()
-
-    figs.labelaxis(axs,panel)
-    axs.spines['right'].set_visible(False)
-    axs.spines['top'].set_visible(False)
-
-
-
-
-
-
-
-
-
-
-    if 0:
-        # Predictive
-        panel = 'B'
-        # loglikelihood
-        x = cxpre
-        y = np.c_[ A[ :, contextcomp_idx[0][1] ] - A[ :, contextcomp_idx[0][0] ],\
-                   A[ :, contextcomp_idx[1][1] ] - A[ :, contextcomp_idx[1][0] ] ]
-    
-    
-    #    labels = ['LL cx+ - cx-   r- ','LL cx+ - cx-   r+ '] 
-        labels = ['no locomotion','with locomotion']
-        colors = ['darkred','orange']
-    
-        axs = ax[1]
-    
-        for m in range(2):
-            for n,dn in enumerate(datanamesefg):
-                
-                axs.scatter(x[n],y[n,m],s=150,marker='o',color=colors[m],alpha=0.8)
-    #            axs.text(x[n]*1.02,y[n,m]*0.995,datanames[n],color='k',alpha=0.3,fontsize=10)
-    
-            l = sp.stats.linregress(x,y[:,m])
-            if l[3]<0.13:
-                line = np.linspace(start=x.min()*0.8,stop=x.max()*1.2,num=2)
-                axs.plot(line,l[0]*line+l[1],color=colors[m],linewidth=2,label=labels[m])
-            else:
-                line = np.linspace(start=x.min()*0.8,stop=x.max()*1.2,num=2)
-                axs.plot(line,l[0]*line+l[1],'--',color=colors[m],linewidth=2,label=labels[m])
-                
-            xoffs = 0.65
-    #            if sx in [3,4,5,7]: xoffs = 25
-            if l[3]<0.001:
-                axs.text(line[1]-xoffs,11-2*m,'p<%5.3f, $R^2$=%4.2f'%((0.001,l[2]**2)),color=colors[m])
-            else:
-                axs.text(line[1]-xoffs,11-2*m,'p=%5.3f, $R^2$=%4.2f'%((l[3],l[2]**2)),color=colors[m])
-        
-        
-        axs.set_xlim(0.45,1.04)
-        axs.set_ylim(-22,15)
-        axs.set_xticks([0.5,1])
-        axs.set_yticks([-20,-10,0,10])
-        
-        figs.plottoaxis_crosshair(axs,0.5,0)
-        axs.legend()    
-    
-        axs.set_xlabel('context PRE', labelpad=0.1, verticalalignment='bottom')
-        axs.set_ylabel('AIC difference between\nwith and without context')
-    
-        figs.labelaxis(axs,panel)
-        axs.spines['right'].set_visible(False)
-        axs.spines['top'].set_visible(False)
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # runspeed context decoders are near chance
-    panel = 'B'
-    axs = ax[1]
-    axs.boxplot(features[:,2,np.array([0,2],dtype='int16')], notch=True)
-
-    axs.set_yticks([0.5,1.0])
-    axs.set_ylim(0.45,1.01)
-    figs.plottoaxis_chancelevel(axs,0.5)
-    axs.set_xticklabels(['PRE','ON'])
-    
-    axs.set_ylabel('locomotion decoder acc.', labelpad=0.1, verticalalignment='bottom')
-    
-    figs.labelaxis(axs,panel)
-    axs.spines['right'].set_visible(False)
-    axs.spines['top'].set_visible(False)
-    
-    
-
-
-
-
-
-
-
-    # show runspeed and context pre commonalities
-    panel = 'C'
-
-
-        
-    alpha = 1-1*0.15
-    
-    axs = ax[2]
-    for k,timing in enumerate([0,2]):
-        color = ['fuchsia','purple'][k]
-    # run cx pre,       and run cx post
-        X = cxpre                      # context pre _neural_
-        Y = features[:,2,timing]            # context pre [0] and post [4] _runnning speed_
-    
-        for n,mousename in enumerate(datanamesefg):
-            # features dimensions: (mice,taskaspect,preearlylatepost)
-            
-            # plot context pre neural vs. context pre running speed
-            axs.scatter(X[n],Y[n],s=150,marker='o',color=color,alpha=alpha)
-    #                        axs.text(features.iloc[n,xx]*1.05,features.iloc[n,yx]*0.98,mousename,color=colors[ynx],alpha=0.1)
-    #        if ynx==0 or sx==8: axs.text(features.iloc[n,xx]*1.02,features.iloc[n,yx]*0.995,mousename,color='k',alpha=0.3,fontsize=10)
-    #                        if ynx==0: axs.text(features.iloc[n,xx],tribe_stds[:,0,:,pox].min()*0.95,mousename,color='k',alpha=0.3,rotation=90,fontsize=10)
-            
-            axs.errorbar(X[n],Y[n],yerr=features[n,2,timing+4],color=color,alpha=alpha)
-            
-    
-        l = sp.stats.linregress(X,Y)
-        if l[3]<0.13:
-            line = np.linspace(start=X.min()*0.8,stop=X.max()*1.2,num=2)
-            axs.plot(line,l[0]*line+l[1],color=color,alpha=alpha,linewidth=2,label='context %s'%['PRE','ON'][k])
-        else:
-            line = np.linspace(start=X.min()*0.8,stop=X.max()*1.2,num=2)
-            axs.plot(line,l[0]*line+l[1],'--',color=color,alpha=alpha,linewidth=2,label='context %s'%['PRE','ON'][k])
-            
-        xoffs = 0.4; yoffs = 0
-        xoffs = 0.6; yoffs = 0.3
-        if l[3]<0.001:
-            axs.text(line[1]-xoffs,l[0]*line[1]+l[1]*1.02+yoffs,'p<%5.3f, $R^2$=%4.2f'%((0.001,l[2]**2)),color=color)
-        else:
-            axs.text(line[1]-xoffs,l[0]*line[1]+l[1]*1.02+yoffs,'p=%5.3f, $R^2$=%4.2f'%((l[3],l[2]**2)),color=color)
-        
-        axs.set_xlim(0.45,1.01); axs.set_ylim(0.45,1.01)
-        axs.set_xticks([0.5,1.0]); axs.set_yticks([0.5,1.0])
-        figs.plottoaxis_crosshair(axs,0.5,0.5)
-        axs.set_xlabel('neural decoder acc.\ncontext PRE',labelpad=0.1, verticalalignment='center')
-        axs.set_ylabel('locomotion decoder acc.', labelpad=0.1, verticalalignment='bottom')
-#        axs.legend(['locomotion context %s'%['PRE','POST'][k]])
-#        axs.set_title(trajectorygrouplabels[ynx])
-
-        if k==1:
-            axs.legend(frameon=False)
-            figs.labelaxis(axs,panel)
-            axs.spines['right'].set_visible(False)
-            axs.spines['top'].set_visible(False)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#    fig.suptitle('Figure 7',verticalalignment='bottom')
-
-
-    save = 0 or globalsave
-    if save:
-        fig.savefig(resultpath+'Fig7_predictglm,locomotion'+ext)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def supplementaryfigure7_unused():
-
-
-
-
-
-
-
-
-
-    panel = 'E'
-    n_cherry = datanames.index('DT019')
-    cx = 0
-    axs = ax[3,0]
-    
-    axs.hist(activities_all[n_cherry][cx][3],bins=np.arange(-2.6666666,0.1,0.3333333),density=True,\
-             edgecolor=activitycolors[3],alpha=0.25,lw=2,facecolor='white',orientation='horizontal')
-    axs.hist(activities_all[n_cherry][cx][2],bins=np.arange(-2.6666666,0.1,0.3333333),density=True,\
-             edgecolor='darkred',facecolor=activitycolors[2],alpha=0.25,orientation='horizontal')
-
-    for k in [1,0]:
-        data = activities_all[n_cherry][cx][k+2]
-        kde = sp.stats.gaussian_kde(data)
-        x = np.arange(-3.3,1.1,0.02)
-        axs.plot(kde(x),x,color=activitycolors[k+2],lw=3,alpha=0.9,label=['correct rejection','false alarm'][k])
-
-    axs.legend(frameon=False,loc='upper right')
-    axs.set_ylim(-3.3,1.1)
-
-    axs.set_ylabel('projected activity\nto visual DV')
-    axs.set_xticklabels([])
-    axs.set_xlabel('hist. freq. [AU]')
-
-    axs.spines['right'].set_visible(False)
-    axs.spines['top'].set_visible(False)
-
-    figs.labelaxis(axs,panel,x=-0.3)
-
-
-
-
-
-            
-        
-    panel = 'F'
-    
-    cx = 0    # choose the context conditioned block (0), or context (1) for displaying projected activities
-    lx = 1     # labels for the conditions  0 visual        1 context
-    dprimes = np.zeros((len(datanames),2))   #    (n_mice x {45,135})
-    colors = ['black','darkgreen','darkred']
-    axs = ax[3,1]
-    
-    for n,dn in enumerate(datanames):
-        print(dn,'activity len',[len(activities_all[n][cx][i]) for i in [0,1,2,3]])
-
-        # print(dn,'activity vector@ hmcf',activities_all[n][cx])
-
-        # find significantly different mice with behaviour
-        s45,p45 = sp.stats.ttest_ind(activities_all[n][cx][0], activities_all[n][cx][1], equal_var=False)
-        s135,p135 = sp.stats.ttest_ind(activities_all[n][cx][2], activities_all[n][cx][3], equal_var=False)
-        
-
-        dprimes[n,:] = [ nedi.dprime_normal(activities_all[n][cx][0], activities_all[n][cx][1]),\
-                         nedi.dprime_normal(activities_all[n][cx][2], activities_all[n][cx][3]) ]
-    
-        m = np.array([ np.mean(activities_all[n][cx][2]), np.mean(activities_all[n][cx][3]) ])
-        e = np.array([ np.std(activities_all[n][cx][2])/np.sqrt(len(activities_all[n][cx][2]))*2, \
-              np.std(activities_all[n][cx][3])/np.sqrt(len(activities_all[n][cx][3]))*2 ])
-        
-
-        if n==n_cherry: lwm = 1.5
-        else: lwm = 1
-
-        if p135>0.05: color = colors[0]; alpha = 0.3; lw = 1
-        else:
-            if m[0]<m[1]: color = colors[1]; alpha = 0.7; lw = 3*lwm
-            else: color = colors[2]; alpha = 0.5; lw = 2*lwm
-    
-        # for k in range(len(activities_all[n])):
-            # axs.hist(activities_all[n][cx][k],bins=10,color=colors[k],label=taskcontext+labels[lx][2+k],alpha=0.5)
-        axs.errorbar([0,1],m,e,lw=lw,color=color,alpha=alpha)
-        
-           
-    axs.set_ylim(-3.3,1.1)
-
-    # axs.set_ylabel('projection to visual DV')
-    axs.set_xticks([0,1])
-    axs.set_xticklabels(['correct rejection','false alarm'])
-        
-
-    axs.spines['right'].set_visible(False)
-    axs.spines['top'].set_visible(False)
-
-
-    figs.labelaxis(axs,panel)
-
-
-
-
-    fig.suptitle('Supplementary Figure 6')
-
-
-
-
-
-
-    save = 0 or globalsave
-    if save:
-        fig.savefig(resultpath+'Supp6_choice'+ext)
-
-
-
-
-
-
-
-
-
-def supplementaryfigure8_unused():
-# show symmetrically and assymetrically behaving mouse
-    # cross decode between parts
-
-    datanames = ['ME110','ME113','DT009','DT014','DT017','DT018','DT019','DT021','DT022','MT020_2']
-    n_mice = len(datanames)
-    accuracylist = []
-    accuracyalllist = []
-    for dn in datanames:
-        # accuracy (times,train-test-crosstrain-crosstest,stats,symmetrytrain)
-        accuracies,coefs,accuracyall,coefsall = pickle.load(open(cacheprefix+'symmetry/neural,context-equalized-symmetric,antisymmetric,cross-decoder-loo,boots,timecourse_%s.pck'%(dn), 'rb'))
-        accuracylist.append(accuracies)
-        accuracyalllist.append(accuracyall)
-    accuracylist = np.array(accuracylist) # (mice,bootstrap,times,train-test-crosstrain-crosstest,stats,symmetrytrain)
-    accuracyalllist = np.array(accuracyalllist) # (mice,bootstrap,times,train-test,stats)
-    n_bootstrap = accuracylist.shape[1]
-
-
-    n_times = accuracyalllist.shape[1]
-
-    mask_on = np.zeros(n_times, dtype=np.bool8)
-    mask_on[T['stimstart_idx']:T['stimend_idx']] = True
-    mask_off = np.ones(n_times, dtype=np.bool8)
-    mask_off[T['stimstart_idx']:T['stimend_idx']] = False
-
-
-
-
-
-    # load baseline chance levels for subsampled number of trials ('reduced'), matching to minimum symmetry number of trials
     n_resample = 10
     chances = pickle.load(open(cacheprefix+'subspaces/chances,allmice,resampled-full,r%d-%s.pck'%(n_resample,continuous_method),'rb'))
-    chances_reduced = pickle.load(open(cacheprefix+'subspaces/chances,allmice,resampled-full,r%d,reduced-%s.pck'%(n_resample,continuous_method),'rb'))
-    
 
 
 
+    fig, ax = plt.subplots(2,n_bodyparts,figsize=(n_bodyparts*6,2*6))
+    # accuracies (timepoints, train/test, stats, levels)
+    # coefs (timepoints, neurons, stats, levels)
+    m_all = np.mean(accuracyall[:,1,0], axis=0)
+    e_all = np.mean(accuracyall[:,1,2], axis=0)
+
+    m_random = accuraciesrandom[1,0]
+    e_random = accuraciesrandom[1,2]
+
+    for bx,bn in enumerate(bodypartnames):
 
 
 
-    # figure
-    fig,ax = plt.subplots(1,2, figsize=(2*10,1*8) )
-
-
-
-
-    for mx,mask in enumerate((mask_off, mask_on)):
-        n_subtrialtimes = np.sum(mask)
-
-
-        # plot all trials
-        axs = ax[mx]
+        # context histograms
+        axs = ax[0,bx]
+        bins = np.arange(0,0.07,0.0005)
+        xv = bodypartsmotions[:n_trials//2,:,bx].flatten()
+        xa = bodypartsmotions[n_trials//2:,:,bx].flatten()
+        kst = sp.stats.ks_2samp(xv, xa, alternative='two-sided')
+        percv = np.percentile(xv, 90)
+        perca = np.percentile(xa, 90)
+        print(bn,percv,perca)
         
-
-        m = accuracyalllist[:,mask,1,0].mean(axis=1)
-        e = np.sqrt( (accuracyalllist[:,mask,1,0].std(axis=1)/np.sqrt(n_subtrialtimes))**2 + accuracyalllist[:,mask,1,2].mean(axis=1)**2 )
-
-        axs.bar(x=np.arange(n_mice)*6-2, height=m, yerr=e, color='grey', label='all', alpha=0.8)
-
-
-        symmetrycolors = [['rebeccapurple','gold'],['darkorange','fuchsia']]
-
-        xranges = np.arange(n_mice)*6-2
-        for n in range(n_mice):
-            chs = chances[datanames[n]]
-            figs.plottoaxis_chancelevel( axs, chs, xs=[ xranges[n]-0.5, xranges[n]+0.5] )
+        axs.set_ylim(0,2050)
+        for cx,contextlabel in enumerate(['visual','audio']):
+            h,_ = np.histogram([xv,xa][cx], bins=bins)
+            axs.plot(bins[:-1]+0.0001/2,h,color=['navy','darkgreen'][cx], label=contextlabel)
+            axs.vlines([percv,perca][cx],*axs.get_ylim(),color=['navy','darkgreen'][cx], ls='--',lw=0.5,alpha=0.5)
         
-        
-        
-        # plot crossdecoding
-        symmetrylabels = [['symmetric->symmetric','symmetric->asymmetric'],['antisymmetric->asymmetric','asymmetric->symmetric']]
-        symmetrycolors = [['rebeccapurple','gold'],['darkorange','fuchsia']]
-        for rx in range(2):             # train subset
-            for sx in range(2):         # crosstest subset (same or cross)
-                
-                color = symmetrycolors[rx][sx]
+        figs.plottoaxis_chancelevel(axs,0)
+        axs.text(0.5,0.9, 'KS p=%6.4f'%kst.pvalue, transform=axs.transAxes, ha='left',color='black')
+        axs.set_xlim(bins[0],bins[-1])
+        axs.set_xticks(np.arange(0,0.071,0.02))
 
+        axs.set_yticks([0,1000,2000])
+        if bx>0: axs.set_yticks([])
 
-                # (n_timestamps,train/test,stats,task,symmetry)
-                m = accuracylist[:,:,mask,1+sx*2,0,rx].mean(axis=(1,2))
-
-                e = np.sqrt( (accuracylist[:,:,mask,1+sx*2,0,rx].std(axis=(1,2))/np.sqrt(n_bootstrap*n_subtrialtimes))**2 + \
-                              accuracylist[:,:,mask,1+sx*2,2,rx].mean(axis=(1,2))**2 )
-                print(m.shape,e.shape)
-                axs.bar(x=np.arange(n_mice)*6-2+1+rx*2+sx, height=m, yerr=e, color=color, label=symmetrylabels[rx][sx])
-
-
-            xranges = np.arange(n_mice)*6
-            for n in range(n_mice):
-                chs = chances_reduced[datanames[n]]
-                figs.plottoaxis_chancelevel( axs, chs, xs=[ xranges[n]-1, xranges[n]+2.5] )
+        if bx==0: axs.legend(frameon=False, loc='center right')
+        axs.set_title(bn)
+        axs.spines['right'].set_visible(False)
+        axs.spines['top'].set_visible(False)    
 
 
 
-        axs.set_xticks(np.arange(n_mice)*6)
-        axs.set_xticklabels(datanames, rotation=60)
 
+        # context decoders mean over timepoints
+        axs = ax[1,bx]
+
+
+
+        #  plot the accuracies averaged  over timepoints, for each motion level
+        m = np.nanmean(accuracies[:,1,0,:,bx], axis=0)
+        e = np.nanmean(accuracies[:,1,2,:,bx], axis=0)
+        axs.plot(levels, m, color='mediumvioletred', lw=2, label='equalized')
+        axs.fill_between(levels, m-e, m+e, color='mediumvioletred', alpha=0.3)
+
+
+
+        axs.set_xlim(bins[0],bins[-1])
+        axs.set_xticks(np.arange(0,0.071,0.02))
         axs.set_ylim(0.45,1.05)
-        figs.plottoaxis_chancelevel(axs,0.5)
-        axs.legend(frameon=False)
-
-        axs.set_ylabel('accuracy')
 
 
-        axs.set_title(['off stimulus','on stimulus'][mx])
+        #  plot the mean over timepoints from accuracyall, and the chance level
+        axs.hlines(m_random, levels[0], levels[-1], color='black', lw=2, alpha=0.8, label='equalized shuffle')
+        axs.fill_between(levels, m_random-e_random, m_random+e_random, color='black', alpha=0.2)
+
+        axs.hlines(m_all, levels[0], levels[-1], color='rebeccapurple', lw=2, alpha=0.8,label='full')
+        axs.fill_between(levels, m_all-e_all, m_all+e_all, color='rebeccapurple', alpha=0.2)
+        
+        figs.plottoaxis_chancelevel(axs,chances[dn])
+
+
+        axs.set_yticks([0.5,0.75,1.0])
+        if bx>0: axs.set_yticklabels([])
+
+        axs.set_xlabel('mean absolute intensity [AU]')
+        if bx==0: axs.legend(frameon=False)
+        if bx==0: axs.set_ylabel('context accuracy')
+
+        axs.spines['right'].set_visible(False)
+        axs.spines['top'].set_visible(False)    
+
+
+
+
+    figs.labelaxis(ax[0,0],'B',x=-0.3,y=1.1,fontsize=48)
+    figs.labelaxis(ax[1,0],'C',x=-0.3,fontsize=48)
 
 
     fig.tight_layout()
-    
-    save = 0 or globalsave
-    if save:
-        fig.savefig(resultpath+'Supp6_behaviour,symmetry,context,invariant'+ext)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def unusedcollections():
-    # fig 2 G:  multiple mice activity projection histograms
-
-    panel = 'G'
-    axs = ax[2,2]
-    varidx = 0   # visual
-    varidy = 1   # y coords of visual
-    P_cx = [[],[]]
-    for k in range(2):
-        for n in range(len(projections_all)):
-            P_cx[k].extend(projections_all[n][varidx,preon,k%2] * np.sign(dbnbasiscomps_all[n][varidx,0]) )
-            P_cx[k].extend(projections_all[n][varidx,preon,k%2+2] * np.sign(dbnbasiscomps_all[n][varidx,0]) )
-    for k in range(2):
-        axs.hist(P_cx[k],bins=50,color=['darkgreen','red'][k],alpha=0.7)
-    axs.legend(['  45°','135°'],loc=2)
-    axs.plot( [0,0+3/2* np.sqrt( (dbnbasiscomps[0,varidx])**2 + (dbnbasiscomps[1,varidx])**2 ) ], [70,70],\
-              color=basiscolors[0],linewidth=4,alpha=0.9 )
-    axs.text(-0.05,72,'decision normal',color=basiscolors[0])
-
-    axs.set_xlabel('visual decision boundary normal')
-    figs.labelaxis(axs,panel)
-    axs.set_title('n=%d'%13)
-
-
-    axs = ax[2,3]
-    varidx = 1   # context
-    P_cx = [[],[]]
-    for k in range(2):
-        for n in range(len(projections_all)):
-            P_cx[k].extend(projections_all[n][varidx,preon,2*k] * np.sign(dbnbasiscomps_all[n][varidx,1]) )
-            P_cx[k].extend(projections_all[n][varidx,preon,2*k+1] * np.sign(dbnbasiscomps_all[n][varidx,1]) )
-    for k in range(2):
-        axs.hist(P_cx[k],bins=50,color=['silver','dimgrey'][k],alpha=0.7)
-    axs.legend(['attend visual','ignore visual'],loc=2)
-    axs.plot( [0,0+3/2* np.sqrt( (dbnbasiscomps[0,varidx])**2 + (dbnbasiscomps[1,varidx])**2 ) ], [55,55],\
-              color=basiscolors[3],linewidth=4,alpha=0.9 )
-    axs.text(-0.05,56.6,'decision normal',color=basiscolors[3])
-    
-    axs.set_xlabel('context decision boundary normal')
-    axs.set_title('n=%d'%13)
-    
-    
-    
-
-
-    
-    # Figure 5 D, multiple mouse histograms    
-
-    panel = 'D'
-    preon = 1
-    
-    axs = ax[1,0]
-    varidx = 0   # visual
-    varidy = 1   # y coords of visual
-    vi = 0
-    ch = 2
-    P_vi = [[],[]]
-    for k in range(2):
-        for n in range(len(projections_all)):
-            P_vi[k].extend(projections_all[n][varidx,preon,k%2] * np.sign(dbnbasiscomps_all[n][varidx,0]) )
-            P_vi[k].extend(projections_all[n][varidx,preon,k%2+2] * np.sign(dbnbasiscomps_all[n][varidx,0]) )
-    for k in range(2):
-        axs.hist(P_vi[k],bins=50,color=['darkgreen','red'][k],alpha=0.7)
-    axs.legend(['  45°','135°'],loc=2)
-    axs.plot( [0,0+3/2* np.sqrt( (dbnbasiscomps[0,varidx])**2 + (dbnbasiscomps[1,varidx])**2 ) ], [60,60],\
-              color=basiscolors[0],linewidth=4,alpha=0.9 )
-    axs.set_ylim(0,65)
-    axs.text(-0.05,65,'decision normal',color=basiscolors[0])
-
-    axs.set_xlabel('visual decision boundary normal')
-    axs.text(-3.5,65,panel,fontsize=24,fontweight='bold')
-    axs.set_title('n=%d'%13)
-
-
-
-    axs = ax[1,1]
-    varidx = 2   # choice
-    P_ch = [[],[]]
-    for n in range(len(projections_all)):
-        ixgohit,ixnogocorrrej,ixgomiss,ixnogofal = perfidx_all[n]
-        P_ch[0].extend(projections_all[n][varidx,preon,0][ixgohit] * np.sign(dbnbasiscomps_all[n][varidx,0]))
-        P_ch[1].extend(projections_all[n][varidx,preon,0][ixgomiss] * np.sign(dbnbasiscomps_all[n][varidx,0]))
-        P_ch[1].extend(projections_all[n][varidx,preon,1][ixnogocorrrej] * np.sign(dbnbasiscomps_all[n][varidx,0]))
-        P_ch[0].extend(projections_all[n][varidx,preon,1][ixnogofal] * np.sign(dbnbasiscomps_all[n][varidx,0]))
-    for k in range(2):
-        axs.hist(P_ch[k],bins=50,color=['blue','brown'][k],alpha=0.7)
-    axs.legend(['lick','no lick'],loc=2)
-    axs.plot( [0,0+3/2* np.sqrt( (dbnbasiscomps[0,varidx])**2 + (dbnbasiscomps[1,varidx])**2 ) ], [60,60],\
-              color=basiscolors[4],linewidth=4,alpha=0.9 )
-    axs.set_ylim(0,65)
-    axs.text(-0.05,56.6,'decision normal',color=basiscolors[4])
-    
-    axs.set_xlabel('context decision boundary normal')
-    axs.set_title('n=%d'%13)
-
-
-
-
-
-
-
-
-
-def figrn():
-
-    dn = 'DT017'
-#    selected_cell_ids = [2,10]
-    selected_cell_ids = [7,26]
-    
-    block = preprocess.loaddatamouse(dn,T,continuous_method=continuous_method,normalize=False)        # use raw firing rates: normalzie=False
-    n_neuron = block.segments[0].analogsignals[0].shape[1]
-    times = block.segments[0].analogsignals[0].times
-    
-    ti = np.arange(0, 36*6,6)*pq.s
-
-    V = [ block.segments[42+trx].annotations['visual'] for trx in range(30)]
-
-    Sp = [ np.concatenate([block.segments[42+trx].spiketrains[n][0].magnitude*pq.ms + ti[trx] for trx in range(30)]) for n in range(len(block.segments[42].spiketrains)) ]
-
-    fig,axs = plt.subplots(1,1,figsize=(54,8))
-    axs.eventplot([  Sp[i] for i in selected_cell_ids ], color = 'navy',linelengths=0.618)
-    
-    axs.set_xlim(-1000,176000)
-    axs.set_ylim(axs.get_ylim())
-    
-    for k in range(30):
-        figs.plottoaxis_stimulusoverlay(axs,{'stimstarttime':0*pq.ms+ti[k], 'stimendtime':3000*pq.ms+ti[k]} )
-        axs.text(ti[k]*1000+100*pq.ms,-0.5 + (V[k]==45)*2,'%d°'%V[k],verticalalignment='center')
-
-    axs.set_yticks([])
-    axs.set_xticks(np.arange(0,150001,30000))
-    axs.set_xticklabels(['0 s','30 s','60 s','90 s','120 s', '150 s'])
-
-    axs.spines['left'].set_visible(False)
-    axs.spines['right'].set_visible(False)
-    axs.spines['top'].set_visible(False)
 
     save = 0 or globalsave
     if save:
-        fig.savefig(resultpath+'raster-%s-c%d,%d'%(dn,selected_cell_ids[0],selected_cell_ids[1])+ext)
+        fig.savefig(resultpath+'Supp8B,C_bodyparts-rois,equalization,histograms'+ext)
+
+    
+    return
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10045,13 +8155,14 @@ def main():
     # statshelper()
 
 
-    supplementaryfigure1()    # drift control
+    # supplementaryfigure1()    # drift control
     supplementaryfigure2()    # show that without VIP interneurons, context is still decodable in PV cells only
     supplementaryfigure3()    # show that decoding from visual DV and motion VV, contextual information is limited.
     supplementaryfigure4()    # control for number of neurons
     supplementaryfigure5()    # audio
     supplementaryfigure6()    # choice to stimuli
     # supplementaryfigure7()    # video movement thresholds; this is output from Julia
+    supplementaryfigure8()    # video RoI body parts analysis
 
 
 

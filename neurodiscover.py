@@ -67,6 +67,15 @@ def residuals(x,y,s_,i_):
 
 
 
+def ll_bernoulli(k, p):
+    # k is a vector of 1s and 0s (data)
+    # p is a vector of probabilities (estimates from model)
+    # return bernoulli log likelihood for each data point
+    ll = (     k * np.log(  p  )   +   (1-k) * np.log( (1-p) )     )
+    return ll
+
+
+
 
 
 
@@ -2069,18 +2078,24 @@ def get_linearregressionmultivariate_singleprocess(X,Y,indices,method=sklm.Ridge
     return indices, a, c
 
 
-def get_linearregressionmultivariate(X,Y,times,method='regression',cv=5, rank=None,crossindicestrain=None, crossindicestest=None):
+def get_linearregressionmultivariate(X,Y,times,method='regression',reguralization='ridge',alpha=1.0, cv=5,
+                                         rank=None,crossindicestrain=None, crossindicestest=None):
     # create multiple decoders for each output in Y for each timepoint
     # X and Y must be: (observations,times,features) dimensions
     # method is either 'regression', 'reducedrankregression', or 'classification', 'crossclassification'
+    # reguralization is either 'ridge' (default) or 'lasso', where alpha is the regularization parameter (default 1.0)
     # ranks is for multivariate reduced regression
     # crossindices is train+cv test and crosstest observations indices available
 
 
-    if method=='regression': linmethod = sklm.Ridge()
+    if method=='regression':
+        if reguralization=='ridge':
+            linmethod = sklm.Ridge(alpha=alpha)
+        elif reguralization=='lasso':
+            linmethod = sklm.Lasso(alpha=alpha)
     elif method=='reducedrankregression': linmethod = ReducedRankRidge(fit_intercept=False, rank=rank)    # ridge_solver='liblinear', 
     elif method=='classification' or \
-         method=='crossclassification': linmethod = sklm.LogisticRegression(solver='liblinear',penalty='l2')
+         method=='crossclassification': linmethod = sklm.LogisticRegression(solver='liblinear', penalty='l2')
     else: print('not allowed method')
 
     if cv=='loo' or cv=='LOO': cv_method = skms.LeaveOneOut()
@@ -2098,7 +2113,7 @@ def get_linearregressionmultivariate(X,Y,times,method='regression',cv=5, rank=No
     else:
         acc = np.zeros((n_timestamps,n_targets,2,3))   # last two dims is (train/test,stats)
     coef = np.zeros((n_timestamps,n_targets,n_features,3))   # last dim is (stats)
-
+    print(method, "\n", linmethod)
     # with multiprocessing.Pool(processes=n_cpu, initializer=init_worker, initargs=(acc_p, sh_acc)) as pool:
     with multiprocessing.Pool(processes=n_cpu) as pool:
         for prc in range(n_cpu):
@@ -2124,9 +2139,34 @@ def get_linearregressionmultivariate(X,Y,times,method='regression',cv=5, rank=No
 
 
 
+def get_singleregression(x, y, method=sklm.Ridge(), cv_method=skms.KFold(10)):
+    n_observations = x.shape[0]
+    acc = np.zeros((2,3))   # last two dims is (train/test,stats)
+    coef = np.zeros(3)   # last dim is (stats)
+    
+    cv = cv_method.get_n_splits(x,y)
+    
+    cv_results = skms.cross_validate(method, \
+                            x, y, cv=cv_method, return_train_score=True, return_estimator=True)
+    sc_tr = cv_results['train_score']
+    sc_te = cv_results['test_score']
 
+    
+    # acc (2,3) (train/test,stats)
+    acc = np.array( \
+        [ [ sc_tr.mean(), sc_tr.std(), sc_tr.std()/np.sqrt(cv) ], \
+            [ sc_te.mean(), sc_te.std(), sc_te.std()/np.sqrt(cv) ] ] )
+    
+    # coef (3) (stats)
+    cs = np.array([ cv_results['estimator'][r].coef_ for r in range(cv) ])
+    coef = np.array([cs.mean(axis=0), cs.std(axis=0), cs.std(axis=0)/np.sqrt(cv)]).squeeze()
 
-
+    # cv predictions
+    y_te = y.copy()
+    for cvx,(is_tr, is_te) in enumerate(cv_method.split(x)):
+        y_te[is_te] = cv_results['estimator'][cvx].predict(x[is_te])
+    
+    return acc,coef,y_te.squeeze()
 
 
 

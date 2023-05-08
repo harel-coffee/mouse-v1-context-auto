@@ -25,14 +25,12 @@ from aggregateallmice import *
 
 
 def select_data():
- 
-    # individual
-    datanames = ['ME110']
-
-
     # all behaviourally symmetric V1
-    # datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
-    # datanames = [['ME110','ME113','DT009'],['DT014','DT017','DT021'],['DT022','MT020_2']]
+    datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
+    # datanames = [['ME110','ME113','DT009'],['DT014','DT017','DT021'],['DT021','DT022','MT020_2']]
+
+
+
 
     
     return datanames
@@ -124,7 +122,20 @@ def analysis(datanames, multiple=False):
 
 
         
-        return
+        return               # this is to avoid the following preloaded type aggregate routines
+
+
+        # preload blocks routines:
+        blocks = []
+        for dn in datanames:
+            block = preprocess.loaddatamouse(dn,T,continuous_method,recalculate=False)
+            blocks.append(  block  )
+    
+        # nebay.aggregate_analogsignals(datanames, blocks, T)
+        aggregatemice_crossorentation(datanames, blocks, T)
+
+
+
 
 
 
@@ -158,12 +169,12 @@ def analysis(datanames, multiple=False):
             
 
             # preprocess.loadtrainingbehaviouraldata(dn, recalculate=True, plot=True)
-            # behaviour_symmetry_highperformance(dn)
             # behaviour_likelihood_simplemodels(dn)
             # behaviour_likelihood_idealobserver(dn)
             # behaviour_likelihood_idealobserver(dn, onlybehaviourma=True)             # just the behaviour plot, no likelihood needed
             # behaviour_likelihood_sigmoidlinearmodels(dn)
 
+            # behaviour_symmetry_highperformance(dn)
             # behaviour_symmetry(dn,block,displaystatsonly=True)
             # behaviour_symmetry(dn,block)
             # behaviour_symmetry_context(dn,block)
@@ -206,6 +217,7 @@ def analysis(datanames, multiple=False):
             # decoder_crosstest(dn,block)
             # decoder_crosstest_highres(dn,block,method='singlecontext')
             # decoder_crosstest_highres(dn,block,method='allcontexts')
+            # decoder_crosstest_highres(dn,block,method='correctnogocontext')
             # decoder_crosstest_highres(dn,block,method='conditionedcontext')
             # decoder_crosstest_highres(dn,block,method='congruency')
             # decoder_crosstest_highres(dn,block,method='sparsecontext')
@@ -254,10 +266,17 @@ def analysis(datanames, multiple=False):
             # decoder_equalizedrunspeeddistribution(dn,block)
             
             # display_movementpca(dn)
-            # decode_movementpca(dn,block)
+            # decode_movementpca_singleconcat(dn,block)
+            # decode_movementpca(dn,block,calculuslevel='posture')
+            # decode_movementpca(dn,block,calculuslevel='motion')
+            # decode_movementbodyparts(dn,block)
             # decode_movementpca_tasks(dn)
-            # subspace_decode_motiontoneuron_reducedrank(dn, block)
+            # subspace_decode_motiontoneuron_reducedrank(dn, block, calculuslevel='posture')
+            # subspace_decode_motiontoneuron_reducedrank(dn, block, calculuslevel='motion')
             # comparestationarycontext(dn, block)
+            # comparemovementdistributioncontext(dn, block,roi='total')
+            # comparemovementdistributioncontext(dn, block,roi='bodyparts')
+            # comparecorrectincongruentgonogocontext(dn,block)
 
 
             # subspaces(dn,block,examine='allexpcond')
@@ -296,7 +315,7 @@ def analysis(datanames, multiple=False):
             # subspaces_PCA(dn,block,preon=0)
             # subspaces_PCA(dn,block,preon=1)
             
-            # subspacedynamics_PCA(dn,block)
+            # subspacedynamics_PCA(dn,block,normalize=True)
             # subspacedynamics_PCA_context(dn,block)
             # subspacedynamics_PCA_signalnoisecorrelation(dn,block)
             

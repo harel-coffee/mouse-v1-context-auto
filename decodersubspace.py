@@ -291,7 +291,7 @@ def decoder_celltypes(dn,block):
     celltypes = ['narrow','broad']
 
     # create list of neurons:
-    print('neuron list: ', block.annotations['celltypes'])     # 0 narrow spiking, 1 broad spiking
+    # print('neuron list: ', block.annotations['celltypes'])     # 0 narrow spiking, 1 broad spiking
     celllists = [ block.annotations['celltypes']==k for k in [0,1] ]
 
     # get responses of all neurons, select from them later
@@ -1209,6 +1209,16 @@ def decoder_crosstest_highres(dn,block, method=None):
 
 
 
+    elif method=='correctnogocontext':
+        comparisongroups  = [   [ [ [blv[1]], [135],    [10000] ], [ [bla[1]],[135],     [10000] ]  ] \
+                            ]
+        taskaspects = ['correctnogocontext']
+        taskorder = [0]
+        exptyp = ',correctnogocontext'
+
+
+
+
     elif method=='conditionedcontext':
     # for separately conditioning on the two contexts
         comparisongroups  = [ \
@@ -1429,6 +1439,12 @@ def decoder_crosstest_highres(dn,block, method=None):
                     offresponses = preprocess.collect_stimulusspecificresponses_choice(block,dn)#,onlyinblock=stimulusIDgroups[0])
 
 
+                if method=='correctnogocontext':
+                    # load offresponses like above, but only for the correct trials
+                    offresponses = preprocess.collect_stimulusspecificresponses(block,stimulusIDgroups,correctonly=True)
+
+                
+                
                 if method[:13]=='sparsecontext':  # remove neurons with the opposite orientation of the selected trials so that visual response is removed
                     offresponses = [ [trial[:,mask_c_db_orientationgroups[cx]] for trial in classes] for classes in offresponses ]
                     print('sparse')
@@ -3059,6 +3075,133 @@ def exportdecoderaccuracies(dn):
 
     
     return
+
+
+
+
+
+
+
+
+
+def comparecorrectincongruentgonogocontext(dn,block):
+
+    recalculate = 0 or globalrecalculate
+    doplot = 0 or globaldoplot
+
+    # decode context from neural activity
+    # only use correct incongruent trials to equalize stimulus and response conditions
+    # decode separetely go trials only and nogo trials only
+
+    times = block.segments[0].analogsignals[0].times
+    wx = int((50*pq.ms/T['dt']).magnitude)  # width of the feature space in time for each neuron
+    times = times[:-wx]
+    n_timestamps = len(times)
+    n_neurons = block.segments[0].analogsignals[0].shape[1]
+
+    taskaspects = ['context,go,congr','context,nogo,congr']
+    performanceaspects = ['correct','error']
+    blv, bla = preprocess.getorderattended(dn)
+    
+    # go and nogo context pairs, only congruent
+    comparisonlist = [ [[ [blv[1]], [45], [5000]], [ [bla[1]], [45], [5000]]],
+                       [[ [blv[1]], [135], [10000]], [ [bla[1]], [135], [10000]]] ]
+
+    if recalculate:
+        accuracies = np.nan*np.ones((n_timestamps,2,3,2,2))        # (timepoints, train/test, stats, gonogo, correctincorrect)
+        coefs = np.nan*np.ones((n_timestamps,n_neurons,3,2,2))     # (timepoints, neurons, stats, gonogo, correctincorrect)
+
+        for gx,comparison in enumerate(taskaspects):
+            for px,performance in enumerate(performanceaspects):
+
+                if performance=='correct':
+                    neuralactivity = preprocess.collect_stimulusspecificresponses(block, comparisonlist[gx], correctonly=True)
+                elif performance=='error':
+                    neuralactivity = preprocess.collect_stimulusspecificresponses(block, comparisonlist[gx], erroronly=True)
+                
+
+                
+                minlen = min(len(neuralactivity[0]), len(neuralactivity[1]))
+                print(comparison, len(neuralactivity[0]), len(neuralactivity[1]), 'min:', minlen)
+                if minlen<2: continue
+                
+                neuralactivity = [ neph.slidingwindow(np.array(na),wx) for na in neuralactivity ]
+
+
+
+                targets = np.hstack((np.ones(len(neuralactivity[0])),4*np.zeros(len(neuralactivity[1]))))     # reestablish block ids
+                targets = np.tile(targets, [1,n_timestamps,1]) # extend dimensions
+                targets = np.swapaxes(targets, 0, 2)
+
+                predictors = np.vstack(neuralactivity)
+
+
+
+                accuracy,coef = nedi.get_linearregressionmultivariate(predictors,targets,times,'classification',cv=min(minlen,5))
+                if wx>1:
+                    coef = np.reshape(coef, [coef.shape[0], 1, wx, n_neurons, 3]).mean(axis=2)
+
+                accuracies[:,:,:,gx,px] = accuracy.squeeze()
+                coefs[:,:,:,gx,px] = coef.squeeze()
+
+
+        pickle.dump((accuracies,coefs), open(cacheprefix+'continuous/gonogo,correcterror-context-decoder,timecourse_%s.pck'%(dn), 'wb'))
+    else:
+        accuracies,coefs = pickle.load(open(cacheprefix+'continuous/gonogo,correcterror-context-decoder,timecourse_%s.pck'%(dn), 'rb'))
+
+
+
+
+
+
+    if doplot:
+
+        # plot the timecourse of decoding accuracy
+
+        fig, ax = plt.subplots(2,2,figsize=(2*8,2*6))
+        # accuracies (timepoints, train/test, stats, ...)
+        # coefs (timepoints, neurons, stats, ...)
+
+
+        for gx,comparison in enumerate(taskaspects):
+            for px,performance in enumerate(performanceaspects):
+
+                axs = ax[px,gx]
+                colors = ['black','mediumvioletred']
+
+                for k in [0,1]:
+                    m = accuracies[:,k,0,gx,px]
+                    e = accuracies[:,k,2,gx,px]
+                    axs.plot(times, m, color=colors[k], lw=1)
+                    axs.fill_between(times, m-e, m+e, color=colors[k], alpha=0.3)
+
+                figs.setxt(axs)
+                axs.set_ylim(0.45,1.05)
+                figs.plottoaxis_stimulusoverlay(axs,T)
+                figs.plottoaxis_chancelevel(axs,0.5)
+                axs.set_xlim(times[0],times[-1])
+
+                axs.set_ylabel('accuracy')
+
+                axs.set_title(['go','nogo'][gx]+' '+performance)
+
+
+        fig.suptitle('decoding context in congruent only trials %s'%dn)
+
+        save = 1 or globalsave
+        if save:
+            fig.savefig(resultpath+'gonogo,correcterror-context-decoder,timecourse_%s'%(dn)+ext)
+
+
+
+    return
+
+
+
+
+
+
+
 
 
 
@@ -6720,7 +6863,7 @@ def subspaces_PCA(dn,block,returnall=False,preon=0):
 
 
 
-def subspacedynamics_PCA(dn,block):
+def subspacedynamics_PCA(dn,block,normalize=True):
     # perform PCA on neural activities in the multimodal blocks concatenated as a whole
     # draw neural activity projections on the PCA axes throughout the trials
 
@@ -6836,8 +6979,12 @@ def subspacedynamics_PCA(dn,block):
 
 
     if dump:    # save for display in publications
-        pickle.dump((projected_dynamics,distances,responses[0][0].times),open(cacheprefix+'subspaces/subspacedynamics,3D,unnormalized-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
-        pickle.dump(projected_random_dynamics,open(cacheprefix+'subspaces/subspacedynamics,randomortho,unnormalized-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
+        if normalize:
+            pickle.dump((projected_dynamics,distances,responses[0][0].times),open(cacheprefix+'subspaces/subspacedynamics,3D-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
+            pickle.dump(projected_random_dynamics,open(cacheprefix+'subspaces/subspacedynamics,randomortho-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
+        else:
+            pickle.dump((projected_dynamics,distances,responses[0][0].times),open(cacheprefix+'subspaces/subspacedynamics,3D,unnormalized-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
+            pickle.dump(projected_random_dynamics,open(cacheprefix+'subspaces/subspacedynamics,randomortho,unnormalized-%s_%s-%dms.pck'%(dn,continuous_method,T['dt'].magnitude),'wb'))
         
         
         

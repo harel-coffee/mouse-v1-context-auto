@@ -1345,14 +1345,14 @@ def decoder_equalizedrunspeeddistribution(dn,block):
 
 
 
-def getmovementpctimecourses(dn, multimodalonly=True):
+def getmovementpctimecourses(dn, multimodalonly=True, calculuslevel='motion'):
 
     starttime = T['starttime'].magnitude
     stimtime = (T['stimendtime'] - T['stimstarttime']).magnitude
     endtime = T['endtime'].magnitude
     fps = T['videofps']
 
-    movementpcs = preprocess.loadvideopca(dn)
+    movementpcs = preprocess.loadvideopca(dn, calculuslevel=calculuslevel)
     triallist = preprocess.loadexperimentdata(dn, multimodalonly=multimodalonly)
     # triallist['start'] /= 1000
     n_trials = triallist.values.shape[0]
@@ -1448,6 +1448,172 @@ def display_movementpca(dn):
 
 
 
+def decode_movementpca_singleconcat(dn,block,calculuslevel='motion'):
+    # create bins of 20 Hz (fps) for neural data
+    # use 20 Hz video PC timecourses
+    # decode one from the other with single cells and single PCs
+    # test shared covariances
+    # calculuslevel = {'posture','motion'}   : posture is absolute image intensity, motion is frame to frame intensity difference
+
+    recalculate = 0 or globalrecalculate
+
+    doplot = 1 or globaldoplot
+
+    th = 0.05   # significance threshold
+
+
+    triallist = preprocess.loadexperimentdata(dn, multimodalonly=True)
+    movementpcslist, timestampfps = getmovementpctimecourses(dn, calculuslevel=calculuslevel)          # movementpcslist dimensions are (trials,timecourse,pcs)
+
+    allcomplextrials = [ [[2,4], [], []] ]
+    neuralactivity = preprocess.collect_stimulusspecificresponses(block, allcomplextrials)
+    downsamplerate = 5   # length * binsize / fps
+    neuralactivity = np.array(neph.downsamplesignals(neuralactivity, downsamplerate)[0])
+
+    n_trials = neuralactivity.shape[0]
+    n_timecourse = neuralactivity.shape[1]
+    n_neurons = neuralactivity.shape[2]
+    n_pcs = movementpcslist.shape[2]
+
+    print('downsampled neural activity: ', neuralactivity.shape)
+    print('movement PCs: ', movementpcslist.shape)
+
+    movementpcslistconcat = np.reshape(movementpcslist, (-1,n_pcs))
+    neuralactivityconcat = np.reshape(neuralactivity, (-1,n_neurons ))
+    n_observations = movementpcslistconcat.shape[0]
+
+    # # calculate in 1 sec bins
+    # broadsamplerate = 20
+    # neuralactivitylowres = neph.downsamplearray(neuralactivity, broadsamplerate, axis=1)    # gather spike counts in 1 sec bins
+    # movementpcslistlowres = neph.downsamplearray(movementpcslist, broadsamplerate, axis=1)    # average movement PCs in 1 sec bins
+    # n_timecourse_lowres = neuralactivitylowres.shape[1]
+    # timestampfpslowres = timestampfps[::broadsamplerate]
+    # timestampfpslowres += ((timestampfpslowres[1] - timestampfpslowres[0])//2)
+
+
+
+
+    # calculate per neuron per pc correlations along the trials
+    if recalculate:
+        # two values:  neural->behaviour, behaviour->neural
+        rhos = np.zeros((2,n_neurons,n_pcs))
+        ps = np.zeros((2,n_neurons,n_pcs))
+        accs = np.zeros((2,n_neurons,n_pcs,2,3))          # (train/test, stats)
+        coefs = np.zeros((2,n_neurons,n_pcs,3))           # (stats)
+        ys_te = np.zeros((2,n_observations,n_neurons,n_pcs))               # cv perdiction for each observation
+        for nx in range(n_neurons):
+            print('neuron:', nx)
+            for px in range(n_pcs):
+                # if nx>10 or px>6: break
+
+                # correlation significance
+                rho,p = sp.stats.linregress(neuralactivityconcat[:,nx], movementpcslistconcat[:,px])[2:4]     # rho and p
+                rhos[0,nx,px] = rho
+                ps[0,nx,px] = p
+                rho,p = sp.stats.linregress(movementpcslistconcat[:,px], neuralactivityconcat[:,nx])[2:4]     # rho and p
+                rhos[1,nx,px] = rho
+                ps[1,nx,px] = p
+
+                # CV regressions
+                accs[0,nx,px,:,:],coefs[0,nx,px,:],ys_te[0,:,nx,px] = \
+                       nedi.get_singleregression(neuralactivityconcat[:,nx][:,np.newaxis], movementpcslistconcat[:,px][:,np.newaxis])
+                accs[1,nx,px,:,:],coefs[1,nx,px,:],ys_te[1,:,nx,px] = \
+                       nedi.get_singleregression(movementpcslistconcat[:,px][:,np.newaxis], neuralactivityconcat[:,nx][:,np.newaxis])
+
+
+
+        pickle.dump((rhos,ps,accs,coefs,ys_te),\
+                open(cacheprefix+'locomotion/%spcs,neurons-single,concatenated_%s.pck'%(calculuslevel, dn), 'wb'))
+    else:
+        rhos,ps,accs,coefs,ys_te = pickle.load(open(cacheprefix+'locomotion/%spcs,neurons-single,concatenated_%s.pck'%(calculuslevel, dn), 'rb'))
+
+
+
+
+
+    if doplot:
+
+        # neural -> behaviour
+        n_pcs = 6
+        n_neurons = 10
+        fig, ax = plt.subplots(n_pcs,n_neurons,figsize=(n_neurons*6,n_pcs*6))
+        fig.subplots_adjust(wspace=0.,hspace=0.)
+
+        ht = 0.07 # text height
+        for nx in range(n_neurons):
+            for px in range(n_pcs):
+                axs = ax[px,nx]
+
+                axs.text(0.01,0.7+3*ht,'$\\rho$=%6.4f, w=%6.4f$\\pm$%6.4f'%(rhos[0,nx,px],coefs[0,nx,px,0],coefs[0,nx,px,2]), fontsize='xx-small', transform=axs.transAxes)
+                axs.text(0.01,0.7+2*ht,'$p$=%12.10f'%ps[0,nx,px], fontsize='xx-small', transform=axs.transAxes)
+                axs.text(0.01,0.7+1*ht,'$R^2_{train}$=%6.4f$\\pm$%6.4f'%(accs[0,nx,px,0,0],accs[0,nx,px,0,2]),fontsize='xx-small', transform=axs.transAxes)
+                axs.text(0.01,0.7+0*ht,'$R^2_{test}$=%6.4f$\\pm$%6.4f'%(accs[0,nx,px,1,0],accs[0,nx,px,1,2]),fontsize='xx-small', transform=axs.transAxes)
+                
+                axs.scatter(neuralactivityconcat[:,nx], movementpcslistconcat[:,px],color='dodgerblue',s=1,alpha=0.5)
+                axs.scatter(neuralactivityconcat[:,nx], ys_te[0,:,nx,px],color='orange',s=1,alpha=0.5)
+
+
+                axs.set_xlim(-0.5,3.5)
+                axs.set_ylim(-1,1)
+                if px<n_pcs-1: axs.set_xticklabels([])
+                if nx>0: axs.set_yticklabels([])
+
+
+
+                if px==0: axs.set_title('neuron %d'%(nx+1),fontsize='x-small')
+                if nx==0: axs.set_ylabel('PC %d [S.U.]'%(px+1))
+                if px==n_pcs-1: axs.set_xlabel('firing rate [S.U.]',fontsize='x-small')
+
+
+        
+        plt.suptitle('%s, neural->behaviour'%calculuslevel)
+
+
+        save = 1 or globalsave
+        if save:
+            fig.savefig(resultpath+'neural-%s-single,p,cv-n,b_%s'%(calculuslevel, dn)+ext)
+
+    
+
+        # behaviour -> neural
+        n_pcs = 10
+        n_neurons = 6
+        fig, ax = plt.subplots(n_neurons,n_pcs,figsize=(n_pcs*6,n_neurons*6))
+        fig.subplots_adjust(wspace=0.,hspace=0.)
+
+        ht = 0.07 # text height
+        for nx in range(n_neurons):
+            for px in range(n_pcs):
+                axs = ax[nx,px]
+
+                axs.text(0.01,0.7+3*ht,'$\\rho$=%6.4f, w=%6.4f$\\pm$%6.4f'%(rhos[1,nx,px],coefs[1,nx,px,0],coefs[1,nx,px,2]), fontsize='xx-small', transform=axs.transAxes)
+                axs.text(0.01,0.7+2*ht,'$p$=%12.10f'%ps[1,nx,px], fontsize='xx-small', transform=axs.transAxes)
+                axs.text(0.01,0.7+1*ht,'$R^2_{train}$=%6.4f$\\pm$%6.4f'%(accs[1,nx,px,0,0],accs[1,nx,px,0,2]),fontsize='xx-small', transform=axs.transAxes)
+                axs.text(0.01,0.7+0*ht,'$R^2_{test}$=%6.4f$\\pm$%6.4f'%(accs[1,nx,px,1,0],accs[1,nx,px,1,2]),fontsize='xx-small', transform=axs.transAxes)
+                
+                axs.scatter(movementpcslistconcat[:,px], neuralactivityconcat[:,nx],color='dodgerblue',s=1,alpha=0.5)
+                axs.scatter(movementpcslistconcat[:,px], ys_te[1,:,nx,px],color='orange',s=1,alpha=0.5)
+
+
+                axs.set_xlim(-1,1)
+                axs.set_ylim(-0.5,3.5)
+                if nx<n_neurons-1: axs.set_xticklabels([])
+                if px>0: axs.set_yticklabels([])
+
+
+
+                if nx==0: axs.set_title('PC %d'%(px+1),fontsize='x-small')
+                if px==0: axs.set_ylabel('neuron %d\nfiring rate [S.U.]'%(nx+1))
+                if nx==n_neurons-1: axs.set_xlabel('[S.U.]',fontsize='x-small')
+
+
+        
+        plt.suptitle('%s, behaviour->neural'%calculuslevel)
+
+
+        save = 1 or globalsave
+        if save:
+            fig.savefig(resultpath+'neural-%s-single,p,cv-b,n_%s'%(calculuslevel, dn)+ext)
 
 
 
@@ -1455,16 +1621,34 @@ def display_movementpca(dn):
 
 
 
-def decode_movementpca(dn,block):
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def decode_movementpca(dn,block,calculuslevel='motion'):
     # create bins of 20 Hz (fps) for neural data
     # use 20 Hz video PC timecourses
     # decode one from the other
     # test shared covariances
+    # calculuslevel = {'posture','motion'}   : posture is absolute image intensity, motion is frame to frame intensity difference
 
 
-    recalculatecorrelations = 1
-    recalculateneuraltomotiondecode = 1
-    recalculatemotiontoneuraldecode = 1
+    recalculatecorrelations = 0 or globalrecalculate
+    recalculateneuraltobehaviourdecode = 0 or globalrecalculate
+    recalculatebehaviourtoneuraldecode = 0 or globalrecalculate
 
     doplot = 0 or globaldoplot
 
@@ -1472,7 +1656,7 @@ def decode_movementpca(dn,block):
 
 
     triallist = preprocess.loadexperimentdata(dn, multimodalonly=True)
-    movementpcslist, timestampfps = getmovementpctimecourses(dn)          # movementpcslist dimensions are (trials,timecourse,pcs)
+    movementpcslist, timestampfps = getmovementpctimecourses(dn, calculuslevel=calculuslevel)          # movementpcslist dimensions are (trials,timecourse,pcs)
 
     allcomplextrials = [ [[2,4], [], []] ]
     neuralactivity = preprocess.collect_stimulusspecificresponses(block, allcomplextrials)
@@ -1502,33 +1686,34 @@ def decode_movementpca(dn,block):
                     rhos[tx,px,nx] = rho
                     ps[tx,px,nx] = p
                 # print('neuron %d, pc %d: mean(rho_t)=%4.2f, mean(p_t)=%6.5f'%(nx+1, px+1, rhos[:,nx,px].mean(), ps[:,nx,px].mean()) )
-        pickle.dump((rhos,ps), open(cacheprefix+'locomotion/motionpcs,neurons-correlations,timecourse_%s.pck'%dn, 'wb'))
+        pickle.dump((rhos,ps), open(cacheprefix+'locomotion/%spcs,neurons-correlations,timecourse_%s.pck'%(calculuslevel, dn), 'wb'))
     else:
-        rhos,ps = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-correlations,timecourse_%s.pck'%dn, 'rb'))
+        rhos,ps = pickle.load(open(cacheprefix+'locomotion/%spcs,neurons-correlations,timecourse_%s.pck'%(calculuslevel, dn), 'rb'))
     print('num significant:', np.sum(ps<=th), '/', n_timecourse*n_neurons*n_pcs)
 
 
 
-
+    reguralization = 'ridge'     # 'ridge' or 'lasso'
+    alpha = 500.0
 
 
     # decode motion from neurons
-    if recalculateneuraltomotiondecode and globalrecalculate:
+    if recalculateneuraltobehaviourdecode and globalrecalculate:
         # accuracies will be (time,pcs,traintest,stats)
-        accuraciesnm,coefsnm = nedi.get_linearregressionmultivariate(neuralactivity,movementpcslist,timestampfps,'regression')
-        pickle.dump((accuraciesnm,coefsnm), open(cacheprefix+'locomotion/motionpcs,neurons-decoder,neuraltomotion,timecourse_%s.pck'%dn, 'wb'))
+        accuraciesnm,coefsnm = nedi.get_linearregressionmultivariate(neuralactivity,movementpcslist,timestampfps,'regression', reguralization=reguralization,alpha=alpha)
+        pickle.dump((accuraciesnm,coefsnm), open(cacheprefix+'locomotion/%spcs,neurons-decoder,%s,%d,neuraltobehaviour,timecourse_%s.pck'%(calculuslevel, reguralization,np.round(alpha),dn), 'wb'))
     else:
-        accuraciesnm,coefsnm = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-decoder,neuraltomotion,timecourse_%s.pck'%dn, 'rb'))
+        accuraciesnm,coefsnm = pickle.load(open(cacheprefix+'locomotion/%spcs,neurons-decoder,%s,%d,neuraltobehaviour,timecourse_%s.pck'%(calculuslevel, reguralization,np.round(alpha),dn), 'rb'))
 
 
 
     # decode neurons from motion (glm)
-    if recalculatemotiontoneuraldecode and globalrecalculate:
+    if recalculatebehaviourtoneuraldecode and globalrecalculate:
         # accuracies will be (time,neurons,traintest,stats)
         accuraciesmn,coefsmn = nedi.get_linearregressionmultivariate(movementpcslist,neuralactivity,timestampfps,'regression')
-        pickle.dump((accuraciesmn, coefsmn), open(cacheprefix+'locomotion/motionpcs,neurons-decoder,motiontoneural,timecourse_%s.pck'%dn, 'wb'))
+        pickle.dump((accuraciesmn, coefsmn), open(cacheprefix+'locomotion/%spcs,neurons-decoder,%s,%d,behaviourtoneural,timecourse_%s.pck'%(calculuslevel, reguralization,np.round(alpha),dn), 'wb'))
     else:
-        accuraciesmn,coefsmn = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-decoder,motiontoneural,timecourse_%s.pck'%dn, 'rb'))
+        accuraciesmn,coefsmn = pickle.load(open(cacheprefix+'locomotion/%spcs,neurons-decoder,%s,%d,behaviourtoneural,timecourse_%s.pck'%(calculuslevel, reguralization,np.round(alpha),dn), 'rb'))
 
 
 
@@ -1542,7 +1727,7 @@ def decode_movementpca(dn,block):
 
 
     
-    if doplot and True:
+    if doplot:
         n_pcs = 6
         n_neurons = 10
         fig, ax = plt.subplots(n_pcs,n_neurons,figsize=(n_neurons*12,n_pcs*12))
@@ -1572,14 +1757,14 @@ def decode_movementpca(dn,block):
         
         save = 0 or globalsave
         if save:
-            fig.savefig(resultpath+'neural-movement-correlations_%s'%(dn)+ext)     #PCs, all
+            fig.savefig(resultpath+'neural-%s-correlations_%s'%(calculuslevel, dn)+ext)     #PCs, all
 
     
 
 
 
 
-    if doplot and True:
+    if doplot:
 
         colors = ['dodgerblue','orange']
         labels = ['train','test']
@@ -1608,17 +1793,17 @@ def decode_movementpca(dn,block):
 
 
 
-        fig.suptitle('%s   neurons -> diff. motion PCs linear regression '%dn)
+        fig.suptitle('%s   neurons -> %s PCs linear regression '%(dn, calculuslevel))
 
         save = 0 or globalsave
         if save:
-            fig.savefig(resultpath+'neural-movement-decoder,n,m_%s'%(dn)+ext)     #PCs, all
+            fig.savefig(resultpath+'neural-%s-decoder,%s,%d,n,m_%s'%(calculuslevel, reguralization,np.round(alpha),dn)+ext)     #PCs, all
 
 
 
 
 
-    if doplot and True:
+    if doplot:
     
         colors = ['dodgerblue','orange']
         labels = ['train','test']
@@ -1647,15 +1832,233 @@ def decode_movementpca(dn,block):
 
 
 
-        fig.suptitle('%s   diff. motion PCs -> neurons linear regression '%dn)
+        fig.suptitle('%s   %s PCs -> neurons linear regression '%(dn, calculuslevel))
 
         save = 0 or globalsave
         if save:
-            fig.savefig(resultpath+'neural-movement-glm,m,n_%s'%(dn)+ext)     #neurons, all
+            fig.savefig(resultpath+'neural-%s-glm,%s,%d,m,n_%s'%(calculuslevel, reguralization,np.round(alpha),dn)+ext)     #neurons, all
 
 
 
     return
+
+
+
+
+
+
+def decode_movementbodyparts(dn,block):
+    # create bins of 20 Hz (fps) for neural data
+    # use 20 Hz video body parts mean intensity timecourses
+    # decode one from the other
+    # test shared covariances
+    # calculuslevel = {'posture','motion'}   : posture is absolute image intensity, motion is frame to frame intensity difference
+
+
+    recalculatecorrelations = 0 or globalrecalculate
+    recalculateneuraltobehaviourdecode = 0 or globalrecalculate
+    recalculatebehaviourtoneuraldecode = 0 or globalrecalculate
+
+    doplot = 1 or globaldoplot
+
+    th = 0.05   # significance threshold
+
+    triallist = preprocess.loadexperimentdata(dn, multimodalonly=True)
+    timestampfps = np.arange( T['starttime'].magnitude, T['endtime'].magnitude, 1000./T['videofps'] )   # milliseconds fps
+    movementbodypartslist = preprocess.loadmovingtrialsbodyparts(dn)         # dimensions: (trials,timecourse,bodyparts)
+    movementbodypartslist = movementbodypartslist[:,:-1,:]
+    bodypartnames = ['nose','mouth','eye','ear','forepaw','back']
+
+
+    allcomplextrials = [ [[2,4], [], []] ]
+    neuralactivity = preprocess.collect_stimulusspecificresponses(block, allcomplextrials)
+    downsamplerate = 5   # length * binsize / fps
+    neuralactivity = np.array(neph.downsamplesignals(neuralactivity, downsamplerate)[0])
+
+    n_trials = neuralactivity.shape[0]
+    n_timecourse = neuralactivity.shape[1]
+    n_neurons = neuralactivity.shape[2]
+    n_bodyparts = movementbodypartslist.shape[2]
+
+    print('downsampled neural activity: ', neuralactivity.shape)
+    print('movement body  partss: ', movementbodypartslist.shape)
+
+
+
+
+    # calculate per neuron per pc correlations along the trials
+    if recalculatecorrelations and globalrecalculate:
+        rhos = np.zeros((n_timecourse,n_bodyparts,n_neurons))
+        ps = np.zeros((n_timecourse,n_bodyparts,n_neurons))
+        for nx in range(n_neurons):
+            for bx in range(n_bodyparts):
+                # if nx>10 or px>6: break
+                for tx in range(n_timecourse):
+                    rho,p = sp.stats.linregress(neuralactivity[:,tx,nx], movementbodypartslist[:,tx,bx])[2:4]     # rho and p
+                    rhos[tx,bx,nx] = rho
+                    ps[tx,bx,nx] = p
+                # print('neuron %d, pc %d: mean(rho_t)=%4.2f, mean(p_t)=%6.5f'%(nx+1, px+1, rhos[:,nx,px].mean(), ps[:,nx,px].mean()) )
+        pickle.dump((rhos,ps), open(cacheprefix+'locomotion/motionbodyparts,neurons-correlations,timecourse_%s.pck'%(dn), 'wb'))
+    else:
+        rhos,ps = pickle.load(open(cacheprefix+'locomotion/motionbodyparts,neurons-correlations,timecourse_%s.pck'%(dn), 'rb'))
+    print('num significant:', np.sum(ps<=th), '/', n_timecourse*n_neurons*n_bodyparts)
+
+
+
+    reguralization = 'ridge'     # 'ridge' or 'lasso'
+    alpha = 1.0
+
+
+    # decode motion from neurons
+    if recalculateneuraltobehaviourdecode and globalrecalculate:
+        # accuracies will be (time,pcs,traintest,stats)
+        accuraciesnm,coefsnm = nedi.get_linearregressionmultivariate(neuralactivity,movementbodypartslist,timestampfps,'regression', reguralization=reguralization,alpha=alpha)
+        pickle.dump((accuraciesnm,coefsnm), open(cacheprefix+'locomotion/motionbodyparts,neurons-decoder,%s,%d,neuraltobehaviour,timecourse_%s.pck'%(reguralization,np.round(alpha),dn), 'wb'))
+    else:
+        accuraciesnm,coefsnm = pickle.load(open(cacheprefix+'locomotion/motionbodyparts,neurons-decoder,%s,%d,neuraltobehaviour,timecourse_%s.pck'%(reguralization,np.round(alpha),dn), 'rb'))
+
+
+
+    # decode neurons from motion (glm)
+    if recalculatebehaviourtoneuraldecode and globalrecalculate:
+        # accuracies will be (time,neurons,traintest,stats)
+        accuraciesmn,coefsmn = nedi.get_linearregressionmultivariate(movementbodypartslist,neuralactivity,timestampfps,'regression')
+        pickle.dump((accuraciesmn, coefsmn), open(cacheprefix+'locomotion/motionbodyparts,neurons-decoder,%s,%d,behaviourtoneural,timecourse_%s.pck'%(reguralization,np.round(alpha),dn), 'wb'))
+    else:
+        accuraciesmn,coefsmn = pickle.load(open(cacheprefix+'locomotion/motionbodyparts,neurons-decoder,%s,%d,behaviourtoneural,timecourse_%s.pck'%(reguralization,np.round(alpha),dn), 'rb'))
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    if doplot:
+        n_bodyparts = 6
+        n_neurons = 10
+        fig, ax = plt.subplots(n_bodyparts,n_neurons,figsize=(n_neurons*12,n_bodyparts*12))
+        fig.subplots_adjust(wspace=0.,hspace=0.)
+
+
+        for nx in range(n_neurons):
+            for bx in range(n_bodyparts):
+                axs = ax[bx,nx]
+                snf = ps[:,bx,nx]<=th # significance mask
+
+                axs.plot(timestampfps, rhos[:,bx,nx],color='orange',lw=2,alpha=0.8,label='r')
+                axs.plot(timestampfps[snf], rhos[snf,bx,nx],'.',color='orange',lw=2,alpha=1)
+                axs.set_ylim(-1,1)
+                if bx<n_bodyparts-1: axs.set_xticklabels([])
+                if nx>0: axs.set_yticklabels([])
+
+                axst = axs.twinx()
+                axst.semilogy(timestampfps, ps[:,bx,nx],color='slategrey', lw=2,alpha=0.8,label='p')
+                axst.semilogy(timestampfps[snf], ps[snf,bx,nx],'.',color='slategrey', lw=2,alpha=1)
+                axst.semilogy([timestampfps[0],timestampfps[-1]],[th,th],'--',lw=1,color='slategrey',alpha=0.7)
+                axst.set_ylim(1e-5,1)
+                if nx<n_neurons-1: axst.set_yticklabels([])
+
+                # if bx==0 and nx==0: axs.legend(frameon=False)
+        
+        
+        save = 1 or globalsave
+        if save:
+            fig.savefig(resultpath+'neural-motion,bodyparts-correlations_%s'%(dn)+ext)     #PCs, all
+
+    
+
+
+    print(accuraciesmn.shape, accuraciesnm.shape)
+
+    if doplot:
+
+        colors = ['dodgerblue','orange']
+        labels = ['train','test']
+        fig, ax = plt.subplots(2,3,figsize=(3*8,2*8))
+
+        for hx in range(2):
+            for wx in range(3):
+                bx = hx*3+wx
+                axs = ax[hx,wx]
+
+                for k in [0,1]:
+                    m = accuraciesnm[:,bx,k,0]
+                    e = accuraciesnm[:,bx,k,2]
+                    axs.plot(timestampfps, m, color=colors[k], lw=3,label=labels[k])
+                    axs.fill_between(timestampfps, m-e, m+e, color=colors[k], alpha=0.3)
+
+                if wx==0 and hx==0: axs.legend(frameon=False)
+                figs.setxt(axs)
+                axs.set_ylim(-2,1)
+                figs.plottoaxis_stimulusoverlay(axs,T)
+                figs.plottoaxis_chancelevel(axs)
+    
+
+                axs.set_title(bodypartnames[bx])
+                if wx==0: axs.set_ylabel('$R^2$')
+
+
+
+        fig.suptitle('%s   neurons -> motion body parts linear regression '%(dn))
+
+        save = 1 or globalsave
+        if save:
+            fig.savefig(resultpath+'neural-motion,bodyparts-decoder,%s,%d,n,m_%s'%(reguralization,np.round(alpha),dn)+ext)     #PCs, all
+
+
+
+
+
+    if doplot:
+    
+        colors = ['dodgerblue','orange']
+        labels = ['train','test']
+        fig, ax = plt.subplots(5,9,figsize=(9*8,5*8))
+
+        for hx in range(5):
+            for wx in range(9):
+                nx = hx*9+wx
+                if nx>43: break
+                axs = ax[hx,wx]
+                for k in [0,1]:
+                    m = accuraciesmn[:,nx,k,0]
+                    e = accuraciesmn[:,nx,k,2]
+                    axs.plot(timestampfps, m, color=colors[k], lw=3,label=labels[k])
+                    axs.fill_between(timestampfps, m-e, m+e, color=colors[k], alpha=0.3)
+
+                if wx==0 and hx==0: axs.legend(frameon=False)
+                figs.setxt(axs)
+                axs.set_ylim(-2,1)
+                figs.plottoaxis_stimulusoverlay(axs,T)
+                figs.plottoaxis_chancelevel(axs)
+    
+
+                axs.set_title('neuron %d'%(nx+1))
+                if wx==0: axs.set_ylabel('$R^2$')
+
+
+
+        fig.suptitle('%s   motion bodyparts -> neurons linear regression '%(dn))
+
+        save = 1 or globalsave
+        if save:
+            fig.savefig(resultpath+'neural-motion,bodyparts-glm,%s,%d,m,n_%s'%(reguralization,np.round(alpha),dn)+ext)     #neurons, all
+
+
+
+    return
+
+
+
+
+
+
 
 
 
@@ -1860,7 +2263,7 @@ def decode_movementpca_tasks(dn):
 
 
 
-def subspace_decode_motiontoneuron_reducedrank(dn, block):
+def subspace_decode_motiontoneuron_reducedrank(dn, block, calculuslevel='motion'):
     # create bins of 20 Hz (fps) for neural data
     # use 20 Hz video PC timecourses
     # reduced rank linear regression of neurons from motion
@@ -1871,7 +2274,7 @@ def subspace_decode_motiontoneuron_reducedrank(dn, block):
 
     
 
-    movementpcslist, timestampfps = getmovementpctimecourses(dn)          # movementpcslist dimensions are (trials,timecourse,pcs)
+    movementpcslist, timestampfps = getmovementpctimecourses(dn, calculuslevel=calculuslevel)          # movementpcslist dimensions are (trials,timecourse,pcs)
 
 
     allcomplextrials = [ [[2,4], [], []] ]
@@ -1962,12 +2365,12 @@ def subspace_decode_motiontoneuron_reducedrank(dn, block):
 
 
         pickle.dump((accuraciesmnranks, coefsmnranks, accuraciesnmranks, coefsnmranks, accuraciesmnrankslowres, coefsmnrankslowres),\
-                open(cacheprefix+'locomotion/motionpcs,neurons-rrr,motiontoneural,timecourse_%s.pck'%dn, 'wb'))
+                open(cacheprefix+'locomotion/%spcs,neurons-rrr,behaviourtoneural,timecourse_%s.pck'%(calculuslevel, dn), 'wb'))
         pickle.dump((accuraciesmnranksconcat, coefsmnranksconcat, accuraciesnmranksconcat, coefsnmranksconcat, accuraciesnmrankslowres, coefsnmrankslowres),\
-                open(cacheprefix+'locomotion/motionpcs,neurons-rrr,motiontoneural,concatenated_%s.pck'%dn, 'wb'))
+                open(cacheprefix+'locomotion/%spcs,neurons-rrr,behaviourtoneural,concatenated_%s.pck'%(calculuslevel, dn), 'wb'))
     else:
-        accuraciesmnranks, coefsmnranks, accuraciesnmranks, coefsnmranks, accuraciesmnrankslowres, coefsmnrankslowres = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-rrr,motiontoneural,timecourse_%s.pck'%dn, 'rb'))
-        accuraciesmnranksconcat, coefsmnranksconcat, accuraciesnmranksconcat, coefsnmranksconcat, accuraciesnmrankslowres, coefsnmrankslowres = pickle.load(open(cacheprefix+'locomotion/motionpcs,neurons-rrr,motiontoneural,concatenated_%s.pck'%dn, 'rb'))
+        accuraciesmnranks, coefsmnranks, accuraciesnmranks, coefsnmranks, accuraciesmnrankslowres, coefsmnrankslowres = pickle.load(open(cacheprefix+'locomotion/%spcs,neurons-rrr,behaviourtoneural,timecourse_%s.pck'%(calculuslevel, dn), 'rb'))
+        accuraciesmnranksconcat, coefsmnranksconcat, accuraciesnmranksconcat, coefsnmranksconcat, accuraciesnmrankslowres, coefsnmrankslowres = pickle.load(open(cacheprefix+'locomotion/%spcs,neurons-rrr,behaviourtoneural,concatenated_%s.pck'%(calculuslevel, dn), 'rb'))
 
 
 
@@ -1977,9 +2380,9 @@ def subspace_decode_motiontoneuron_reducedrank(dn, block):
         colors = ['dodgerblue','orange']
         colorlist = plt.cm.viridis( np.linspace(1.0, 0.33, maxrank) )
         labels = ['train','test']
-        titles = ['motion->neural','neural->motion']
+        titles = ['%s->neural','neural->%s']%(calculuslevel,calculuslevel)
         concattitles = [' timecourse',' concatenated','lowres']
-
+        print('plotting ',calculuslevel     )
         fig, ax = plt.subplots(2,3,figsize=(3*12,2*8))
 
 
@@ -2059,11 +2462,11 @@ def subspace_decode_motiontoneuron_reducedrank(dn, block):
 
 
 
-        fig.suptitle('%s   diff. motion PCs -> neurons   linear reduced rank regressions '%dn)
+        fig.suptitle('%s   %s PCs -> neurons   linear reduced rank regressions '%(calculuslevel, dn))
 
         save = 0 or globalsave
         if save:
-            fig.savefig(resultpath+'neural-movement-rrr,mn,nm,timecourse+concat_%s'%(dn)+ext)     #neurons, all
+            fig.savefig(resultpath+'neural-%s-rrr,bn,nb,timecourse+concat_%s'%(calculuslevel, dn)+ext)     #neurons, all
 
 
 
@@ -2227,7 +2630,7 @@ def comparestationarycontext(dn, block):
 
         fig.suptitle('%s   decoding context from threshold-stationary trials '%dn)
 
-        save = 1 or globalsave
+        save = 0 or globalsave
         if save:
             fig.savefig(resultpath+'stationarytrials,threshold-context-decoder,timecourse_%s'%(dn)+ext)     #neurons, all
 
@@ -2242,7 +2645,247 @@ def comparestationarycontext(dn, block):
 
 
 
+def comparemovementdistributioncontext(dn, block, roi='total'):
 
+    # separate motion and stationary by video motion energy thresholds
+    # compare context representation to all trials
+
+    print('decoding context at various motion intensity levels')
+
+    recalculate = 0 or globalrecalculate
+    doplot = 0 or globaldoplot
+
+
+    # collect motion criteria at different thresholds and allowed proportions
+
+    if roi=='total':
+        loader = preprocess.loadmovinglevelstrials
+        bodypartnames = ['total']
+    elif roi=='bodyparts':
+        loader = preprocess.loadmovinglevelstrialsbodyparts
+        bodypartnames = ['nose','mouth','eye','ear','forepaw','back']
+
+    levels, movingtrials = loader(dn, bodypartnames)
+    print(levels)
+
+    # n_bodyparts = len(bodypartnames)
+    n_levels = len(levels)
+    n_trials, n_movement_timestamps, n_bodyparts = movingtrials.shape
+    downsamplerate = 5   # length * binsize / fps; video is downsampled compared to neural activity
+
+
+    # collect neural activity
+    allcomplextrials = [ [[2,4], [], []] ]
+    neuralactivity_all = np.array(preprocess.collect_stimulusspecificresponses(block, allcomplextrials)[0])
+    times = block.segments[0].analogsignals[0].times
+    wx = int((50*pq.ms/T['dt']).magnitude)  # width of the feature space in time for each neuron
+    if wx>1:   # create wider feature space of several subsequent timepoints
+        times = times[:-wx]
+        neuralactivity_all = neph.slidingwindow(neuralactivity_all,wx)
+    indices = np.arange(len(times))
+    print(neuralactivity_all.shape, movingtrials.shape, levels.shape)
+
+    targets_all = np.hstack((2*np.ones(n_trials//2),4*np.ones(n_trials//2)))     # reestablish block ids
+
+
+    n_neurons = block.segments[0].analogsignals[0].shape[1]
+    n_timestamps = len(times)
+
+    n_trials_contextminimum = 5 # the number of trials required per trial as a minimum to do a decoding
+
+    # calculate the decoder grids
+    if recalculate:
+        accuracies = np.nan*np.ones((n_timestamps,2,3,n_levels,n_bodyparts))        # (timepoints, train/test, stats, levels)
+        coefs = np.nan*np.ones((n_timestamps,n_neurons,3,n_levels,n_bodyparts))     # (timepoints, neurons, stats, levels)
+
+        accuraciesrandom = np.nan*np.ones((n_timestamps,2,3,n_levels,n_bodyparts))        # (timepoints, train/test, stats, levels)
+        coefsrandom = np.nan*np.ones((n_timestamps,n_neurons,3,n_levels,n_bodyparts))     # (timepoints, neurons, stats, levels)
+
+        # go over body parts
+        for bx,bn in enumerate(bodypartnames):
+            print('Calculating:',bn)
+
+            # go over timestamps
+            for bt,nt in enumerate(indices[:-2:downsamplerate]): # behaviour time, neural time
+
+
+                for mx,lv in enumerate(levels):      # go over the midpoints
+
+                    mask_levels = movingtrials[:,bt,bx]==mx
+                    # check if we have levels at all:
+                    if np.sum(mask_levels)==0: continue
+
+
+                    num_vi = mask_levels[:n_trials//2].sum()
+                    num_au = mask_levels[n_trials//2:].sum()
+                    # check if we have enough trials in both contexts
+                    if num_vi<n_trials_contextminimum or  \
+                        num_au<n_trials_contextminimum: continue
+                    
+                    # equalize the number of trials in both contexts
+                    di = num_vi-num_au
+                    if di>0:
+                        inds = np.argwhere(mask_levels[:n_trials//2])
+                        mask_levels[inds[0:np.abs(di)]] = False
+                    elif di<0:
+                        aux = np.copy(mask_levels)
+                        aux[:n_trials//2] = False
+                        inds = np.argwhere(aux)         # this will result in the second half checking only
+                        mask_levels[inds[0:np.abs(di)]] = False
+                    
+                    num_vi = mask_levels[:n_trials//2].sum()
+                    num_au = mask_levels[n_trials//2:].sum()
+                    print(nt,bt,mx,lv, 'hit', num_vi, num_au)
+
+                    # fill out the targets axes, with dimensions = (observations,timepoints,features)
+                    predictors = neuralactivity_all[mask_levels,nt:nt+downsamplerate,:]
+                    targets = targets_all[mask_levels]
+
+                    targets = np.tile(targets, [1,downsamplerate,1]) # extend dimensions
+                    targets = np.swapaxes(targets, 0, 2)
+
+                    accuracy,coef = nedi.get_linearregressionmultivariate(predictors,targets,times,'classification')
+                    
+                    # reshape to average over feature timewidth
+                    if wx>1:
+                        coef = np.reshape(coef, [coef.shape[0], 1, wx, n_neurons, 3]).mean(axis=2)
+
+                    # (n_timestamps,train/test,stats,task,symmetry)
+                    accuracies[nt:nt+downsamplerate,:,:,mx,bx] = accuracy.squeeze()
+                    # (n_timestamps,n_features,stats,task,symmetry)
+                    coefs[nt:nt+downsamplerate,:,:,mx,bx] = coef.squeeze()
+
+
+                    # random control
+                    chosen_indices_vi = np.random.permutation(n_trials//2)[:num_vi]
+                    chosen_indices_au = np.random.permutation(n_trials//2)[:num_au]  + n_trials//2
+                    chosen_indices = np.hstack((chosen_indices_vi,chosen_indices_au))
+                    predictors = neuralactivity_all[chosen_indices,nt:nt+downsamplerate,:]
+                    targets = targets_all[chosen_indices]
+                    
+                    targets = np.tile(targets, [1,downsamplerate,1]) # extend dimensions
+                    targets = np.swapaxes(targets, 0, 2)
+
+                    accuracy_,coef = nedi.get_linearregressionmultivariate(predictors,targets,times,'classification')
+                    
+                    # reshape to average over feature timewidth
+                    if wx>1:
+                        coef = np.reshape(coef, [coef.shape[0], 1, wx, n_neurons, 3]).mean(axis=2)
+
+                    # (n_timestamps,train/test,stats,task,symmetry)
+                    accuraciesrandom[nt:nt+downsamplerate,:,:,mx,bx] = accuracy.squeeze()
+                    # (n_timestamps,n_features,stats,task,symmetry)
+                    coefsrandom[nt:nt+downsamplerate,:,:,mx,bx] = coef.squeeze()
+
+
+
+        # aggregate random
+        accuraciesrandom = np.nanmean(accuraciesrandom,axis=(0,3,4))
+        coefsrandom = np.nanmean(coefsrandom,axis=(0,3,4))
+
+        # do for all trials as control    
+        predictors = neuralactivity_all
+        targets = targets_all
+        targets = np.tile(targets, [1,n_timestamps,1])
+        targets = np.swapaxes(targets, 0, 2)
+        accuracy,coef = nedi.get_linearregressionmultivariate(predictors,targets,times,'classification')
+        if wx>1: coef = np.reshape(coef, [coef.shape[0], 1, wx, n_neurons, 3]).mean(axis=2)
+        accuracyall = accuracy.squeeze()
+        coefsall = coef.squeeze()
+            
+
+        pickle.dump((accuracies,coefs,accuracyall,coefsall,accuraciesrandom,coefsrandom), open(cacheprefix+'locomotion/movementdistribution,levels,%s-context-decoder,timecourse_%s.pck'%(roi,dn), 'wb'))
+    else:
+        accuracies,coefs,accuracyall,coefsall,accuraciesrandom,coefsrandom = pickle.load(open(cacheprefix+'locomotion/movementdistribution,levels,%s-context-decoder,timecourse_%s.pck'%(roi,dn), 'rb'))
+
+    
+    
+    
+    print(accuracies.shape, times.shape)
+    if doplot:
+
+        bodypartsmotions = preprocess.loadmovingtrialsbodyparts(dn)
+
+        fig, ax = plt.subplots(3,n_bodyparts,figsize=(n_bodyparts*12,3*8))
+        # accuracies (timepoints, train/test, stats, levels)
+        # coefs (timepoints, neurons, stats, levels)
+
+        for bx,bn in enumerate(bodypartnames):
+
+            # plot time course of decoding accuracy
+            axs = ax[0,bx]
+            colors = ['black','mediumvioletred']
+            for mx,lv in enumerate(levels):
+                color = np.array([mx/n_levels,0,mx/n_levels])
+                for k in [1]:
+                    m = accuracies[:,k,0,mx,bx]
+                    e = accuracies[:,k,2,mx,bx]
+                    axs.plot(times, m, color=['black',color][k], lw=1, label=[None,'%4.2f'%lv][k])
+                    axs.fill_between(times, m-e, m+e, color=['black',color][k],alpha=0.3)
+
+            figs.setxt(axs)
+            axs.set_ylim(0.45,1.05)
+            figs.plottoaxis_stimulusoverlay(axs,T)
+            figs.plottoaxis_chancelevel(axs,0.5)
+            axs.set_xlim(times[0],times[-1])
+
+            # axs.legend(frameon=False)
+            axs.set_ylabel('accuracy')
+            axs.set_title(bn)
+
+
+
+
+            # cntext decoders mean over timepoints
+            axs = ax[1,bx]
+
+            m = np.nanmean(accuracies[:,1,0,:,bx], axis=0)
+            e = np.nanmean(accuracies[:,1,2,:,bx], axis=0)
+            axs.plot(levels, m, color='mediumvioletred', lw=1)
+            axs.fill_between(levels, m-e, m+e, color='mediumvioletred', alpha=0.3)
+
+
+            axs.set_xlim(0,0.05)
+            axs.set_xticks(np.arange(0,0.051,0.01))
+            axs.set_ylim(0.45,1.05)
+            figs.plottoaxis_chancelevel(axs,0.5)
+
+            axs.set_xlabel('motion energy level [AU]')
+            axs.legend(frameon=False)
+            axs.set_ylabel('accuracy')
+            axs.set_title(bn)
+            
+    
+
+            # context histograms
+            axs = ax[2,bx]
+            bins = np.arange(0,0.05,0.0005)
+            xv = bodypartsmotions[:n_trials//2,:,bx].flatten()
+            xa = bodypartsmotions[n_trials//2:,:,bx].flatten()
+            kst = sp.stats.ks_2samp(xv, xa, alternative='two-sided')
+            
+            for cx,contextlabel in enumerate(['visual','audio']):
+                h,_ = np.histogram([xv,xa][cx], bins=bins)
+                axs.plot(bins[:-1]+0.0001/2,h,color=['navy','darkgreen'][cx], label=contextlabel)
+            axs.text(0.5,0.9, 'KS p=%6.4f'%kst.pvalue, transform=axs.transAxes, ha='left',color='black')
+            axs.set_xlim(bins[0],bins[-1])
+            axs.set_xticks(np.arange(0,0.051,0.01))
+            axs.legend(frameon=False)
+            axs.set_xlabel('motion energy level [AU]')
+            axs.set_title(bn)
+
+
+        fig.suptitle('%s   decoding context at movement-levels, %s '%(dn,roi))
+
+        save = 0 or globalsave
+        if save:
+            fig.savefig(resultpath+'movementdistribution,levels,%s-context-decoder,timecourse_%s'%(roi,dn)+ext)     #neurons, all
+
+    
+
+
+
+    return
 
 
 
@@ -3201,16 +3844,21 @@ def behaviour_symmetry_highperformance(dn):
 
     # calculate log likelihoods for each model, in each context and congruency variation
 
-    lowprob = 5e-2     # prevent exact 1s and 0s in probabilities
+    lowprob = 1e-3     # prevent exact 1s and 0s in probabilities
 
+    # relevancy in models means contextually correct or opposite modality
+    # log likelihood mean over all trials
+    LLs = np.zeros((2,2,2,6))      # relevancy, context, congruency, model
+    # p or parameter:
+    mp = np.zeros((2,2,2,6,2))         # relevancy, context, congruency, model, parameter
 
-    LLs = np.zeros((2,2,3,6))         # context, congruency, gonogoboth, model
     for cx in [0,1]:
         for ix in [0,1]:
 
 
 
             for gx in [0,1,2]:
+                if gx<2: continue # don't do go and nogo trials separately
                 # create signal masks
                 if gx<2: # go and nogo signals
                     sl = signals[cx][ix][0]==1-gx
@@ -3220,105 +3868,272 @@ def behaviour_symmetry_highperformance(dn):
                 choices = action[cx][ix][sl]
                 meanresponses[cx,ix,gx] = choices.mean()
 
+
+                # lick bias: # no oppsosite for this, so rx=1 is omitted
+                modelnumber = 0
+                relevancy = 0
+                p = meanresponses[cx,ix,gx]
+                if gx==2: mp[relevancy,cx,ix,modelnumber,0] = p-0.5     # save overall bias for display
+                p = np.clip(p,lowprob,1-lowprob)
+                LLs[relevancy,cx,ix,modelnumber] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+
+
                 # contextually correct:
+                modelnumber = 1
+                relevancy = 0
                 data = signals[cx][ix][0][sl]
                 p = data * (1-2*lowprob) + lowprob
-                LLs[cx,ix,gx,0] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+                LLs[relevancy,cx,ix,modelnumber] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+                mp[relevancy,cx,ix,modelnumber,:] = p.mean()
 
                 # contextually opposite:
+                modelnumber = 1
+                relevancy = 1
                 data = signals[cx][ix][1][sl]
                 p = data * (1-2*lowprob) + lowprob
-                LLs[cx,ix,gx,1] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
-
-
-                # lick bias:
-                p = meanresponses[cx,ix,gx]
-                p = np.clip(p,lowprob,1-lowprob)
-                LLs[cx,ix,gx,2] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+                LLs[relevancy,cx,ix,modelnumber] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+                mp[relevancy,cx,ix,modelnumber,:] = p.mean()
 
 
                 # contextually correct with lick bias
+                modelnumber = 2
+                relevancy = 0
                 data = signals[cx][ix][0][sl]      # contextually opposite, but it is already loaded
-                p = data * (1-2*lowprob) + lowprob     + meanresponses[cx,ix,gx]
+                # p = data * (1-2*lowprob) + lowprob     + meanresponses[cx,ix,gx]-0.5
+                p = data + meanresponses[cx,ix,gx]-0.5
                 p = np.clip(p,lowprob,1-lowprob)
-                LLs[cx,ix,gx,3] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+                LLs[relevancy,cx,ix,modelnumber] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+                mp[relevancy,cx,ix,modelnumber,:] = p.mean()
 
                 # opposite with lick bias
+                modelnumber = 2
+                relevancy = 1
                 data = signals[cx][ix][1][sl]      # contextually opposite, but it is already loaded
-                p = data * (1-2*lowprob) + lowprob     + meanresponses[cx,ix,gx]
+                p = data * (1-2*lowprob) + lowprob     + meanresponses[cx,ix,gx]-0.5
                 p = np.clip(p,lowprob,1-lowprob)
-                LLs[cx,ix,gx,4] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+                LLs[relevancy,cx,ix,modelnumber] = (     choices * np.log(  p  )   +   (1-choices) * np.log( (1-p) )     ).mean()
+                mp[relevancy,cx,ix,modelnumber,:] = p.mean()
 
 
 
+    
+    
+    
+    
+    # parameteric maximum log likelihood models
 
-                # # caculate bernoulli log likelihood (LL) for choices at p-alpha, similar to other LLs below
-                # # minimize negative LL, and store the best LL, and the alpha value that gave it
-                # def mean_coupled_nll_f(params):
-                #     go =  choices * np.log(params[0])      # k = 0 values term will be 0, omitted
-                #     nogo = (1-choices) * np.log(1-params[0])   # symmetric! p is intentional here; k = 1 values term will be 0, omitted
-                #     mcll = (go + nogo).mean()    # mean coupled log likelihood
-                #     return -mcll
-
-                # results = minimize(mean_coupled_nll_f, [0.5], method='Nelder-Mead', bounds=Bounds(lb=0.,ub=1.))
-                # if gx==2: print("LL =",-results.fun, "    p =",results.x[0])
+    # caculate bernoulli log likelihood (LL) for choices at beta bias, lambda lapse
+    # maximise LL, and store the best LL, and the parameter values that gave it
 
 
 
+    def p_bias_data(x, b=0, v=[1,0]):
+        # x is a vector of 1s and 0s, the target
+        # b bias parameter
+        # v is p=1 and p=0 classes in this order, default [1,0]
+        p = np.zeros(x.shape)
+        p[x==v[0]] = 1 + b
+        p[x==v[1]] = b
+        p = np.clip(p,lowprob,1-lowprob)
+        return p
 
-    def modelLL_squeeze(k,p,alpha):
-        p_squeezed = p * (1-2*alpha) + alpha
-        ll = (     k * np.log(  p_squeezed  )   +   (1-k) * np.log( (1-p_squeezed) )     ).mean()
+    def p_lapse_data(x, l=0, v=[1,0]):
+        # x is a vector of 1s and 0s, the target
+        # l lapse parameter
+        # v is p=1 and p=0 classes in this order, default [1,0]
+        l = np.clip(l,0.0,0.5)       # avoid lapse to reverse to opposite modality, max is fully random
+        p = np.zeros(x.shape)
+        p[x==v[0]] = 1 - l
+        p[x==v[1]] = l
+        p = np.clip(p,lowprob,1-lowprob)
+        return p
+    
+    def p_biaslapse_data(x, b=0, l=0, v=[1,0]):
+        # x is a vector of 1s and 0s, the target
+        # b bias parameter
+        # l lapse parameter
+        # v is p=1 and p=0 classes in this order, default [1,0]
+        l = np.clip(l,0.0,0.5)       # avoid lapse to reverse to opposite modality, max is fully random
+        p = np.zeros(x.shape)
+        p[x==v[0]] = 1 + b - l
+        p[x==v[1]] = b + l
+        p = np.clip(p,lowprob,1-lowprob)
+        return p
+
+
+
+    def modelLL_bias(k,x,b):      # context aware bias model
+        # k is choices, x is target
+        # positive b means that p is shifted towards 1
+        # negative b means that p is shifted towards 0
+        p = p_bias_data(x, b=b)
+        ll = nedi.ll_bernoulli(k, p).mean()
+        return ll
+
+    def modelLL_lapse(k,x,l):      # context aware lapse model
+        p = p_lapse_data(x, l)
+        ll = nedi.ll_bernoulli(k, p).mean()
+        return ll
+    
+    def modelLL_biaslapse(k,x,b,l):      # context aware bias+lapse model
+        p = p_biaslapse_data(x, b, l)
+        ll = nedi.ll_bernoulli(k, p).mean()
         return ll
 
 
-    alpharange = np.arange(0.01,0.99,0.01)
-    LLc = np.zeros((2,2,len(alpharange)))         # context, congruency, p values
-    mLLc = np.zeros((2,2))         # context, congruency, LLs
-    mp = np.zeros((2,2))         # context, congruency, squeezed p parameter
-    for cx in [0,1]:
-        for ix in [0,1]:
-            for px,alpha in enumerate(alpharange):
-                choices = action[cx][ix]
 
-                # contextually correct:
-                data = signals[cx][ix][0]
-                p = data
 
-                LLc[cx,ix,px] = modelLL_squeeze(choices,p,alpha)
 
-            mLLci = np.argsort(LLc[cx,ix,:])[-1]
-            LLs[cx,ix,2,5] = LLc[cx,ix,mLLci]        # only solve for combined both go nogo (2), and 6th model (5)
-            mp[cx,ix] = 1*(1-2*alpharange[mLLci]) + alpharange[mLLci]
 
-    # make a plot alpharange vs LLc for each contexts and congruency variation
-    # with title dn
+    # parameter sweeps
+    biasrange = np.arange(-0.50,0.51,0.01)
+    lapserange = np.arange(0.00,1.01,0.01)
+
+
+
+
+
+    # context aware parametric models
+
+    # bias model
+    modelnumber = 3
+    LLb = np.zeros((2,2,2,len(biasrange))) # (relevancy, context, congruency, parameterrange)
+    for rx in [0,1]:             # relevancy
+        for cx in [0,1]:         # context
+            for ix in [0,1]:     # congruency
+                for bx,bias in enumerate(biasrange):
+                    choices = action[cx][ix]
+                    target = signals[cx][ix][rx]
+                    LLb[rx,cx,ix,bx] = modelLL_bias(choices,target,bias)
+                mLLib = np.argmax(LLb[rx,cx,ix,:])
+                LLs[rx,cx,ix,modelnumber] = LLb[rx,cx,ix,mLLib]
+                mp[rx,cx,ix,modelnumber,0] = biasrange[mLLib]
+
+    # lapse model
+    modelnumber = 4
+    LLl = np.zeros((2,2,2,len(lapserange))) # (relevancy, context, congruency, parameterrange)
+    for rx in [0,1]:             # relevancy
+        for cx in [0,1]:         # context
+            for ix in [0,1]:     # congruency
+                for bx,lapse in enumerate(lapserange):
+                    choices = action[cx][ix]
+                    target = signals[cx][ix][rx]
+                    LLl[rx,cx,ix,bx] = modelLL_lapse(choices,target,lapse)
+                mLLil = np.argmax(LLl[rx,cx,ix,:])
+                LLs[rx,cx,ix,modelnumber] = LLl[rx,cx,ix,mLLil]
+                mp[rx,cx,ix,modelnumber,1] = lapserange[mLLil]
+
+    # bias + lapse model
+    modelnumber = 5
+    LLbl = np.zeros((2,2,2,len(biasrange),len(lapserange))) # (relevancy, context, congruency, parameter1range, parameter2range)
+    mLLibl = np.zeros((2,2,2,2),dtype=int) # (relevancy, context, congruency, parameter1argmax, parameter2argmax)
+    for rx in [0,1]:             # relevancy
+        for cx in [0,1]:         # context
+            for ix in [0,1]:     # congruency
+                for bx,bias in enumerate(biasrange):
+                    for lx,lapse in enumerate(lapserange):
+                        choices = action[cx][ix]
+                        target = signals[cx][ix][rx]
+                        LLbl[rx,cx,ix,bx,lx] = modelLL_biaslapse(choices,target,bias,lapse)
+                mLLi = np.argmax(LLbl[rx,cx,ix,:,:])
+                mLLibl[rx,cx,ix,:] = np.unravel_index(mLLi,(len(biasrange),len(lapserange)))
+                LLs[rx,cx,ix,modelnumber] = LLbl[rx,cx,ix,mLLibl[rx,cx,ix,0],mLLibl[rx,cx,ix,1]]
+                mp[rx,cx,ix,modelnumber,0] = biasrange[mLLibl[rx,cx,ix,0]]
+                mp[rx,cx,ix,modelnumber,1] = lapserange[mLLibl[rx,cx,ix,1]]
+
+
+
+
+
+
+
+
+
 
     
     if globaldoplot or 0:
-        fig,ax = plt.subplots(1,1,figsize=(1*8,1*8))
-        for cx in [0,1]:
-            for ix in [0,1]:
-                axs = ax
+
+        fig,ax = plt.subplots(2,2,figsize=(2*8*1.2,2*8))
+        # relevancy variable: rx = 0 contextual, or rx = 1 opposite
+        for cx in [0,1]:        # context
+            for ix in [0,1]:    # congruency
+
                 label = ['visual context','audio context'][cx]+[' congruent',' incongruent'][ix]
-                axs.plot(alpharange,LLc[cx,ix,:],['-','--'][ix], lw=2, color=['navy','darkgreen'][cx], label=label)
-                axs.scatter(meanresponses[cx,ix,2],LLs[cx,ix,2,2],
-                            s=100, color=['navy','darkgreen'][cx], marker=['o','x'][ix])
-                # axs.scatter(1-mp[cx,ix],mLLc[cx,ix],
-                #             s=100, color=['dodgerblue','lime'][cx], marker=['o','x'][ix])
-        
-        axs.scatter(1,1, s=100, color='black', marker='o', label='lick bias congruent')
-        axs.scatter(1,1, s=100, color='black', marker='X', label='lick bias incongruent')
-        axs.legend(fontsize=10)
-        axs.set_xlabel('$\\alpha$ (squeeze model), p (lick bias model)')
-        axs.set_ylabel('LL')
-        axs.set_ylim(-1.5,0)
-        axs.set_title(dn)
+
+
+                # context awaqre
+                rx = 0 # relevancy
+
+                axs = ax[0,0]
+                mx = 3 # model number
+                axs.plot(biasrange,LLb[rx,cx,ix,:],['-','--'][ix], lw=2, color=['navy','darkgreen'][cx], label=label)
+                axs.scatter(mp[rx,cx,ix,mx,0],LLs[rx,cx,ix,mx],
+                            s=100, color=['navy','darkgreen'][cx], marker=['o','x'][ix],label=None)
+                axs.text(mp[rx,cx,ix,mx,0]+0.02,LLs[rx,cx,ix,4],'$\\beta$=%4.2f'%mp[rx,cx,ix,mx,0], color='grey', size='x-small', ha='left', va='center')
+
+                axs.set_ylim(-1.5,0)
+                axs.set_xlabel('$\\beta$ (bias model)')
+                axs.set_title('context aware')
+
+
+                axs = ax[0,1]
+                mx = 4
+                axs.plot(lapserange,LLl[rx,cx,ix,:],['-','--'][ix], lw=2, color=['navy','darkgreen'][cx], label=label)
+                axs.scatter(mp[rx,cx,ix,mx,1],LLs[rx,cx,ix,mx],
+                            s=100, color=['navy','darkgreen'][cx], marker=['o','x'][ix],label=None)
+                axs.text(mp[rx,cx,ix,mx,1]+0.02,LLs[rx,cx,ix,mx],'$\\lambda$=%4.2f'%mp[rx,cx,ix,mx,1], color='grey', size='x-small', ha='left', va='center')
+
+                axs.set_ylim(-1.5,0)
+                axs.legend(fontsize=10)
+                axs.set_xlabel('$\\lambda$ (lapse model)')
+                axs.set_title('context aware')
+
+
+                axs = ax[1,0]
+                mx = 5
+                axs.plot(biasrange,LLbl[rx,cx,ix,:,mLLibl[rx,cx,ix,1]],['-','--'][ix], lw=2, color=['navy','darkgreen'][cx], label=label)
+                axs.scatter(mp[rx,cx,ix,mx,0],LLs[rx,cx,ix,mx],
+                            s=100, color=['navy','darkgreen'][cx], marker=['o','x'][ix],label=None)
+                axs.text(mp[rx,cx,ix,mx,0]+0.02,LLs[rx,cx,ix,mx],'$\\beta$=%4.2f'%mp[rx,cx,ix,mx,0], color='grey', size='x-small', ha='left', va='center')
+
+                axs.set_ylim(-1.5,0)
+                axs.legend(fontsize=10)
+                axs.set_xlabel('$\\beta$ (bias+lapse model)')
+
+
+                axs = ax[1,1]
+                mx = 5
+                axs.plot(lapserange,LLbl[rx,cx,ix,mLLibl[rx,cx,ix,0],:],['-','--'][ix], lw=2, color=['navy','darkgreen'][cx], label=label)
+                axs.scatter(mp[rx,cx,ix,6,1],LLs[rx,cx,ix,mx],
+                            s=100, color=['navy','darkgreen'][cx], marker=['o','x'][ix],label=None)
+                axs.text(mp[rx,cx,ix,mx,1]+0.02,LLs[rx,cx,ix,mx],'$\\lambda$=%4.2f'%mp[rx,cx,ix,mx,1], color='grey', size='x-small', ha='left', va='center')
+
+                axs.set_ylim(-1.5,0)
+                axs.legend(fontsize=10)
+                axs.set_xlabel('$\\lambda$ (bias+lapse model)')
+
+
+        for av in [0,1]:
+            for ah in [0,1,2,3,4,5]:
+                axs = ax[av,ah]
+                if av==0 and ah<4:
+                    axs.axis('off')
+                    continue
+
+                axs.scatter(0,1, s=100, color='black', marker='o', label='contextual+%s congruent'%(['bias','lapse','bias+lapse','bias+lapse'][av*2+ah%2]))
+                axs.scatter(0,1, s=100, color='black', marker='X', label='contextual+%s incongruent'%(['bias','lapse','bias+lapse','bias+lapse'][av*2+ah%2]))
+                axs.legend(fontsize=10)
+                axs.set_ylabel('LL')
+
+
+
+
+        fig.suptitle(dn)
 
         fig.tight_layout()
 
         if globalsave or 0:
-            fig.savefig('choice-p,LL-%s'%dn+ext)
+            fig.savefig(resultpath+'choice-p,LL-%s'%dn+ext)
 
 
 

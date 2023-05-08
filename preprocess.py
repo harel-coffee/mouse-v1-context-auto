@@ -1302,11 +1302,14 @@ def getorderattended(datafileid):
 
 
 
-def loadvideopca(dn, twopart=False):
+def loadvideopca(dn, calculuslevel='motion', twopart=False):
+
+    if calculuslevel=='posture': calculusfilenameinfix = ''
+    elif calculuslevel=='motion': calculusfilenameinfix = 'd'
 
     if twopart:
         for b in ['1','2']:
-            fn = dn+'-b%s-movement,pca.csv'%b
+            fn = dn+'-b%s-movement,dpca.csv'%b
             if trialsfolder=='':
                 fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
             else:
@@ -1318,7 +1321,7 @@ def loadvideopca(dn, twopart=False):
                 movementpcs2 = pd.read_csv(fullpath,sep=',',header=0)
                 movementpcs = pd.concat([movementpcs, movementpcs2], axis=0)
     else:   # this version saved a single pca made over the entire two blocks (two videos) concatenated
-        fn = dn+'-movement,pca.csv'
+        fn = dn+'-movement,%spca.csv'%calculusfilenameinfix
         if trialsfolder=='':
             fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
         else:
@@ -1331,23 +1334,81 @@ def loadvideopca(dn, twopart=False):
 
 
 
-def loadmovingthresholdtrials(dn):
-        fn = dn+'-motionenergy,threshold.csv'
+def loadmovingthresholdtrials(dn, calculuslevel='motion'):
+    if calculuslevel=='posture': calculusfilenameinfix = ''
+    elif calculuslevel=='motion': calculusfilenameinfix = 'd'
+    
+    fn = dn+'-%senergy,threshold.csv'%calculuslevel
+    fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
+
+    movingtrials = pd.read_csv(fullpath,sep=',',header=0)
+    print(movingtrials)
+    thresholds = (movingtrials.columns[1:].values).astype(np.float)
+    proportions = movingtrials['proportion'].values[::140]
+    movingtrials = movingtrials.iloc[:,1:].values.astype(np.bool8)
+    # print(proportions.shape, movingtrials.shape)
+    print("thresholds:", thresholds)
+    print("proportions:", proportions)
+
+    return thresholds, proportions, movingtrials
+
+
+
+def loadmovinglevelstrials(dn, bodypartnames=[]):
+
+    fn = dn+'-dpc-latent-motionenergy,levels'
+    fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
+
+    # load level midpoints, and correct Inf
+    levels = pd.read_csv(fullpath+'.csv',sep=',',header=None)
+    levels = np.hstack((levels.values.flatten()[:-1],2.5))
+
+    # load trials with level indices
+    movingtrials = pd.read_csv(fullpath+'trials.csv',sep=',',header=None).values.astype(np.int16)
+    movingtrials = movingtrials - 1             # move indices from julia to python
+
+    return levels, movingtrials
+
+
+
+
+
+def loadmovinglevelstrialsbodyparts(dn,bodypartnames=[]):
+
+    # load level midpoints
+    fn = dn+'-bodyparts-motionenergy,levels'
+    fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
+    bodypartslevels = pd.read_csv(fullpath+'.csv',sep=',',header=None)
+    bodypartslevels = bodypartslevels.values.flatten()
+
+    bodypartsmovingtrials = []
+    for bx,bn in enumerate(bodypartnames):
+        fn = dn+'-bodyparts,%s-motionenergy,levels'%bodypartnames[bx]
         fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
 
-        movingtrials = pd.read_csv(fullpath,sep=',',header=0)
-        # print(movingtrials)
-        thresholds = (movingtrials.columns[1:].values).astype(np.float)
-        proportions = movingtrials['proportion'].values[::140]
-        movingtrials = movingtrials.iloc[:,1:].values.astype(np.bool8)
-        # print(proportions.shape, movingtrials.shape)
-        print("thresholds:", thresholds)
-        print("proportions:", proportions)
 
-        return thresholds, proportions, movingtrials
+        # load trials with level indices
+        bodypartsmovingtrialssingle = pd.read_csv(fullpath+'trials.csv',sep=',',header=None).values.astype(np.int16)
+        bodypartsmovingtrialssingle = bodypartsmovingtrialssingle - 1             # move indices from julia to python
+
+        bodypartsmovingtrials.append(bodypartsmovingtrialssingle)
+        print(bn, bodypartsmovingtrialssingle.shape)
+    
+    bodypartsmovingtrials = np.stack(bodypartsmovingtrials,axis=-1)
+
+    return bodypartslevels, bodypartsmovingtrials
 
 
 
+def loadmovingtrialsbodyparts(dn,n_trials=140,n_timecourse=121):
+    fn = dn+'-absolutemotion,bodyparts.csv'
+    fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
+    bodypartsmovingtrials = pd.read_csv(fullpath,sep=',',header=0)
+    n_bodyparts = len(bodypartsmovingtrials.columns)
+    # reshape to trial x time x bodyparts
+    bodypartsmovingtrials = bodypartsmovingtrials.values.reshape(n_trials,n_timecourse,n_bodyparts,order='F')
+
+    return bodypartsmovingtrials
 
 
 
