@@ -1399,7 +1399,7 @@ def figure1():
         # axs.text(0.5,0.9,labels[bx],fontsize='x-small',color=colors[bx],verticalalignment='top',horizontalalignment='center',transform=axs.transAxes)
         axs.legend(frameon=False, fontsize='x-small',loc='upper center')
         
-        # axs.set_title('high performance periods',fontsize='medium')
+        # axs.set_title('consistent periods',fontsize='medium')
         axs.set_ylabel('num.\ntrials',fontsize='x-small',labelpad=12)
         axs.set_ylim(0,62)
         axs.set_yticks([0,30,60])
@@ -6011,13 +6011,13 @@ def figure7():
     s = np.std(E,axis=1)
 
 
-    accuracies_levels,coefs_levels,_,_ = pickle.load(open(cacheprefix+'locomotion/movementdistribution,levels,total-context-decoder,timecourse_%s.pck'%(dn), 'rb'))
+    accuracies_levels,coefs_levels,_,_,_,_ = pickle.load(open(cacheprefix+'locomotion/movementdistribution,levels,total-context-decoder,timecourse_%s.pck'%(dn), 'rb'))
     levels, movingtrials = preprocess.loadmovinglevelstrials(dn)
     n_levels = len(levels)
 
-    bodypartsaccuracies_levels,bodypartscoefs_levels,_,_ = pickle.load(open(cacheprefix+'locomotion/movementdistribution,levels,bodyparts-context-decoder,timecourse_%s.pck'%(dn), 'rb'))
-    bodypartslevels, bodypartsmovingtrials = preprocess.loadmovinglevelstrialsbodyparts(dn)
-    n_bodypartslevels = len(bodypartslevels)
+    # bodypartsaccuracies_levels,bodypartscoefs_levels,_,_ = pickle.load(open(cacheprefix+'locomotion/movementdistribution,levels,bodyparts-context-decoder,timecourse_%s.pck'%(dn), 'rb'))
+    # bodypartslevels, bodypartsmovingtrials = preprocess.loadmovinglevelstrialsbodyparts(dn)
+    # n_bodypartslevels = len(bodypartslevels)
 
 
 
