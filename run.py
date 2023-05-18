@@ -169,6 +169,7 @@ def analysis(datanames, multiple=False):
             
 
             # preprocess.loadtrainingbehaviouraldata(dn, recalculate=True, plot=True)
+            # behaviour_generate_movingaveragestatistics()
             # behaviour_likelihood_simplemodels(dn)
             # behaviour_likelihood_idealobserver(dn)
             # behaviour_likelihood_idealobserver(dn, onlybehaviourma=True)             # just the behaviour plot, no likelihood needed

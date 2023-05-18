@@ -6174,8 +6174,8 @@ def figure7():
     axs = axbot[0,2]
     accuracies_levels
 
-    m = np.nanmean(accuracies_levels[:,1,0,:], axis=0)
-    e = np.nanmean(accuracies_levels[:,1,2,:], axis=0)
+    m = np.nanmean(accuracies_levels[:,1,0,:,0], axis=0)
+    e = np.nanmean(accuracies_levels[:,1,2,:,0], axis=0)
     axs.plot(levels, m, color='mediumvioletred', lw=1)
     axs.fill_between(levels, m-e, m+e, color='mediumvioletred', alpha=0.3)
 

@@ -1325,7 +1325,7 @@ def loadvideopca(dn, calculuslevel='motion', twopart=False):
         if trialsfolder=='':
             fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
         else:
-            fullpath = pathdatamouse+dn+'/'+fn
+            fullpath = pathdatamouse+trialsfolder+'V1/'+dn+'/'+fn
 
         movementpcs = pd.read_csv(fullpath,sep=',',header=0)
 
