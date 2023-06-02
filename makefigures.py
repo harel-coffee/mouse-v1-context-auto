@@ -1077,7 +1077,7 @@ def figure1():
                 pc.set_facecolor(colors[k])
                 pc.set_edgecolor(colorspercentiles[gx])
                 pc.set_alpha(0.4)
-
+            axs.scatter(np.tile(k*4-0.5+gx,len(D)),D,color=colors[k],alpha=0.8)
 
     axs.set_xticks([-0.5, 0.5, 3.5, 4.5,7.5, 8.5,11.5, 12.5])
     axs.set_xticklabels(['go','nogo','go','nogo','go','nogo','go','nogo'],rotation=45)
@@ -2506,11 +2506,11 @@ def figure3():
         ci = np.c_[m-ci,m+ci]
 #        print(timegroups.shape,m.shape,ci.shape)
         artist = axs.boxplot(x=timegroups[:,bx,:], positions=-750+timestarts_idx[:4]*10, notch=True,usermedians=m,conf_intervals=ci,\
-                             whis=[5,95],labels=timecourselabels,widths=350)
-    
+                             whis=[5,95],showfliers=False, labels=timecourselabels,widths=350)
 #        print(artist.keys())
         for element in artist.keys():
             plt.setp(artist[element], color=variablecolors[bx],linewidth=2)
+        axs.scatter(np.repeat(-750+timestarts_idx[:4][np.newaxis,:]*10,repeats=8,axis=0),timegroups[:,bx,:],color='black',s=10)
     
         axs.set_yticks([0.5,1.0])
         axs.set_ylim(0.45,1.01)
@@ -2717,13 +2717,14 @@ def figure3():
 
     color = 'rebeccapurple'
     axs = ax[3,2]
-    axs.bar(edges[:-1]+width, anglecounts, width=width*2,color=color, alpha=0.7)
+    axs.bar(edges[:-1]+width, anglecounts, width=width*2,color=color, alpha=0.7,label='angle between visual\nand context DVs',)
 #                axs.plot(edges[:-1]+width, anglecounts[:,chvix,cx],'o-',\
 #                        color=basiscolors[basisindices[chvix][cx]],alpha=0.7)
     # axs.errorbar(anglestats[0],9,xerr=anglestats[1][chvix,cx],color=colors[chvix][cx])
     # axs.plot(anglestats[0][chvix,cx],9,'o',color=colors[chvix][cx])
     # axs.text(anglestats[0][chvix,:].mean(),9,'p=%5.3f'%anglestats_t_p[chvix])
-    axs.legend(['angle between visual\nand context DVs'])
+    axs.scatter(angles,9.5*np.ones(len(datanamesefg)),color='black',s=7,label=None)
+    axs.legend(frameon=False)
     # anglestats_t_p
     # axs.set_xlim(-np.pi/2,np.pi/2)
     axs.set_xlim(0,np.pi)
@@ -5282,7 +5283,8 @@ def figure6():
     ci = np.c_[m-ci,m+ci]
 #    print(timegroups.shape,m.shape,ci.shape)
     artist = axs.boxplot(x=timegroups[:,ch,:], positions=-750+timestarts_idx[:4]*10, notch=True,usermedians=m,conf_intervals=ci,\
-                whis=[5,95],labels=timecourselabels,widths=350)
+                whis=[5,95],showfliers=False,labels=timecourselabels,widths=350)
+    axs.scatter(np.repeat(-750+timestarts_idx[:4][np.newaxis,:]*10,repeats=8,axis=0),timegroups[:,ch,:],color='black',s=10)
 
     for element in artist.keys():
         plt.setp(artist[element], color=variablecolors[1],linewidth=2)
@@ -5525,7 +5527,8 @@ def figure6():
         # kde = sp.stats.gaussian_kde(angles)
         # x = np.arange(0,edges[-1],np.pi/180)  #edges[:-1]+width
         # axs.plot(x,kde(x),color=color,lw=2,alpha=0.7)
-        
+        axs.scatter(angles,9.5*np.ones(len(datanames)),color='black',s=7,label=None)
+
         
         
         #                axs.plot(edges[:-1]+width, anglecounts[:,chvix,cx],'o-',\
@@ -6015,7 +6018,7 @@ def figure7():
     levels, movingtrials = preprocess.loadmovinglevelstrials(dn)
     n_levels = len(levels)
 
-    # bodypartsaccuracies_levels,bodypartscoefs_levels,_,_ = pickle.load(open(cacheprefix+'locomotion/movementdistribution,levels,bodyparts-context-decoder,timecourse_%s.pck'%(dn), 'rb'))
+    # bodypartsaccuracies_levels,bodypartscoefs_levels,_,_,_,_ = pickle.load(open(cacheprefix+'locomotion/movementdistribution,levels,bodyparts-context-decoder,timecourse_%s.pck'%(dn), 'rb'))
     # bodypartslevels, bodypartsmovingtrials = preprocess.loadmovinglevelstrialsbodyparts(dn)
     # n_bodypartslevels = len(bodypartslevels)
 
@@ -6571,9 +6574,10 @@ def supplementaryfigure2():
     m = B.mean(axis=0)
     ci = np.c_[m-ci,m+ci]
     artist = axs.boxplot(x=B, positions=-750+tpidx[:4]*10, notch=True,usermedians=m,conf_intervals=ci,\
-                         whis=[5,95],widths=350)
+                         whis=[5,95],widths=350,showfliers=False)
     for element in artist.keys():
         plt.setp(artist[element], color='mediumvioletred',linewidth=2)
+    axs.scatter(np.repeat(-750+tpidx[:4][np.newaxis,:]*10,repeats=B.shape[0],axis=0),B,color='black',s=10)
 
     figs.setxt(axs)
     axs.set_xlim(-1400*pq.ms,4400*pq.ms)
@@ -6620,9 +6624,10 @@ def supplementaryfigure2():
     m = B.mean(axis=0)
     ci = np.c_[m-ci,m+ci]
     artist = axs.boxplot(x=B, positions=-750+tpidx[:4]*10, notch=True,usermedians=m,conf_intervals=ci,\
-                         whis=[5,95],widths=350)
+                         whis=[5,95],widths=350,showfliers=False)
     for element in artist.keys():
         plt.setp(artist[element], color='mediumvioletred',linewidth=2)
+    axs.scatter(np.repeat(-750+tpidx[:4][np.newaxis,:]*10,repeats=B.shape[0],axis=0),B,color='black',s=10)
 
     figs.setxt(axs)
     axs.set_xlim(-1400*pq.ms,4400*pq.ms)
@@ -7200,11 +7205,11 @@ def supplementaryfigure5():
     ci = np.c_[m-ci,m+ci]
     # print(timegroups.shape,m.shape,ci.shape)
     artist = axs.boxplot(x=timegroups[:,bx,:], positions=-750+timestarts_idx[:4]*10, notch=True,usermedians=m,conf_intervals=ci,\
-                            whis=[5,95],labels=timecourselabels,widths=350)
-
+                            whis=[5,95],showfliers=False,labels=timecourselabels,widths=350)
     # print(artist.keys())
     for element in artist.keys():
         plt.setp(artist[element], color=variablecolors[bx],linewidth=2)
+    axs.scatter(np.repeat(-750+timestarts_idx[:4][np.newaxis,:]*10,repeats=8,axis=0),timegroups[:,bx,:],color='black',s=10)
 
     axs.set_yticks([0.5,1.0])
     axs.set_ylim(0.45,1.01)
@@ -7406,13 +7411,14 @@ def supplementaryfigure5():
 
     color = 'teal'
     axs = ax[1,1]
-    axs.bar(edges[:-1]+width, anglecounts, width=width*2,color=color, alpha=0.7)
+    axs.bar(edges[:-1]+width, anglecounts, width=width*2,color=color, alpha=0.7,label='angle between audio\nand context DVs')
 #                axs.plot(edges[:-1]+width, anglecounts[:,chvix,cx],'o-',\
 #                        color=basiscolors[basisindices[chvix][cx]],alpha=0.7)
     # axs.errorbar(anglestats[0],9,xerr=anglestats[1][chvix,cx],color=colors[chvix][cx])
     # axs.plot(anglestats[0][chvix,cx],9,'o',color=colors[chvix][cx])
     # axs.text(anglestats[0][chvix,:].mean(),9,'p=%5.3f'%anglestats_t_p[chvix])
-    axs.legend(['angle between audio\nand context DVs'])
+    axs.scatter(angles,9.5*np.ones(len(datanamesefg)),color='black',s=7,label=None)
+    axs.legend(frameon=False)
     # anglestats_t_p
     # axs.set_xlim(-np.pi/2,np.pi/2)
     axs.set_xlim(0,np.pi)
@@ -7950,7 +7956,8 @@ def supplementaryfigure6():
         # kde = sp.stats.gaussian_kde(angles)
         # x = np.arange(0,edges[-1],np.pi/180)  #edges[:-1]+width
         # axs.plot(x,kde(x),color=color,lw=2,alpha=0.7)
-        
+        axs.scatter(angles,9.5*np.ones(len(datanames)),color='black',s=7,label=None)
+
         
         
         #                axs.plot(edges[:-1]+width, anglecounts[:,chvix,cx],'o-',\
@@ -8174,6 +8181,16 @@ def main():
 
 
     
+    # supplementaryfigure4_unused()
+    # supplementaryfigure5_unused()
+    # supplementaryfigure5b_unused()       # visual discrimination is dependent on animal performance
+    # supplementaryfigure6_unused()
+    # supplementaryfigure7_unused()     # confounds, GLMs
+    # supplementaryfigure8_unused()    # behaviour symmetry does not affect context representation
+
+    # figrn()
+
+    # unusedcollections()
     
     
     
