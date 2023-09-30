@@ -4644,7 +4644,7 @@ def consistent_masks(stimuli, success, relevant_idx=0):
 
 
 def segment_ma_consecutive(x):
-    # find consecutive segments of x=1
+    # find consecutive segments of x=1..
     # return the length of all segments
     consecutives = []
     if x[0]==1: flag = True
@@ -4687,24 +4687,25 @@ def  behaviour_generate_movingaveragestatistics():
     n_trials = 70
     n_modality = 2
     relevant_idx = 0
-    n_repeats = 10000
+    n_repeats = 100000
     n_trialtypemasks = 4
 
     
-    
-    
-    
+
+
+
 
     success_mas = []
     consecutive_mas = []
     stimuli = np.random.binomial(n=1,p=0.5,size=(n_trials,n_modality,n_repeats))
     for mx in range(n_models):
-
+        # if mx>0: continue
         #  calculate successes and moving averages
         choices = np.zeros((n_trials,n_repeats,n_params))
         success = np.zeros((n_trials,n_repeats,n_params))
         success_ma = np.zeros((n_trials,n_trialtypemasks+1,n_repeats,n_params))
         for ux,u in enumerate(param_ranges[mx]):
+            # if ux!=3:  continue
             ps = model_param(stimuli[:,relevant_idx,:], u, labels_models[mx])
             choices[:,:,ux] = np.random.binomial(n=1,p=ps,size=(n_trials,n_repeats))
             success[:,:,ux] = (stimuli[:,relevant_idx,:]==choices[:,:,ux])
@@ -4712,6 +4713,8 @@ def  behaviour_generate_movingaveragestatistics():
             # get congruency from stimuli 1 and 2 equal or opposite
             masks = consistent_masks(stimuli, success)
             for rx in range(n_repeats):
+                # success[masks[:,0,rx],rx,ux] = 1
+                # success[masks[:,2,rx],rx,ux] = 1
                 success_ma[:,:4,rx,ux] = moving_average_trials(success[:,rx,ux], masks[:,:,rx], ma=20)
 
         #  calculate consistent trials: where all four are logically true
@@ -4724,6 +4727,7 @@ def  behaviour_generate_movingaveragestatistics():
         for ux,u in enumerate(param_ranges[mx]):
             c_ma = []
             for rx in range(n_repeats):
+                # if ux!=3:  break
                 c_ma.append( segment_ma_consecutive(success_mas[mx][:,4,rx,ux]) )
             # if mx==1 and ux==2: print(mx,ux,c_ma)
             consecutive_ma.append(c_ma)
@@ -4738,7 +4742,9 @@ def  behaviour_generate_movingaveragestatistics():
     consecutive_counts = np.zeros((n_models,n_params,n_repeats,n_trials))
 
     for mx in range(n_models):
+        # if mx>0: continue
         for ux in range(n_params):
+            # if ux!=3: continue
             for rx in range(n_repeats):
                 t = (success_mas[mx][:,4,rx,ux]).sum().astype(np.int32)
                 if t>0: # otherwise the -1 index will be the last, and gives false count
@@ -4759,7 +4765,9 @@ def  behaviour_generate_movingaveragestatistics():
     # calculate the probability of having exactly 1, 2, etc. number of consecutive successes of length n
     prob_exactly_consecutive_length = np.zeros((n_models,n_params,n_trials,n_trials))
     for mx in range(n_models):
+        # if mx>0: continue
         for ux in range(n_params):
+            # if ux!=3: continue
             for t in range(n_trials):
                 for rx in range(n_repeats):
                     c = consecutive_counts[mx,ux,rx,t].astype(np.int32)  # number of t length occurrences reported in repetition rx
@@ -4789,6 +4797,8 @@ def  behaviour_generate_movingaveragestatistics():
     print('mouse, consecutive blocks in visual context:',consecutive_ma_mouse)
 
     
+    pickle.dump((n_trials,cutpoint,prob_ntrials_successes,prob_atleastone_consecutive_length,consecutive_ma_mouse),
+                open(cacheprefix+'behaviour/probabilityconsistentperiods-n%d_%s'%(n_repeats,dn),'wb'))
 
 
     # plots
@@ -4861,17 +4871,18 @@ def  behaviour_generate_movingaveragestatistics():
 
         if 1:
             fig,axs = plt.subplots(1,1)
-            ax = axs
-            mx = 0
-            ux = 3
+            ax = axs  # production figure R1
+            mx = 0    # mean bias model
+            ux = 3    # mean bias = 0.75
 
             ax.plot(np.arange(n_trials)+1,[prob_ntrials_successes[mx,ux,c:].sum() for c in np.arange(n_trials)], color='dodgerblue',lw=2,alpha=0.8)
-            # ax.plot(np.arange(n_trials)+1,[prob_atleastone_consecutive_length[mx,ux,c:].sum() for c in np.arange(n_trials)], color='rebeccapurple',lw=2,alpha=0.8)
+            ax.plot(np.arange(n_trials)+1,[prob_atleastone_consecutive_length[mx,ux,c:].sum() for c in np.arange(n_trials)], color='rebeccapurple',lw=2,alpha=0.8)
 
             num_success_mouse = sum(consecutive_ma_mouse)
             ax.scatter(cutpoint,prob_ntrials_successes[mx,ux,cutpoint-1:].sum(), color='dodgerblue',alpha=0.8)
             ax.scatter(num_success_mouse,prob_ntrials_successes[mx,ux,num_success_mouse-1:].sum(), color='dodgerblue',alpha=0.8)
-            # ax.scatter(cutpoint,prob_atleastone_consecutive_length[mx,ux,cutpoint-1:].sum(), color='rebeccapurple',alpha=0.8)
+            ax.scatter(cutpoint,prob_atleastone_consecutive_length[mx,ux,cutpoint-1:].sum(), color='rebeccapurple',alpha=0.8)
+            ax.scatter(cutpoint,prob_atleastone_consecutive_length[mx,ux,num_success_mouse-1:].sum(), color='rebeccapurple',alpha=0.8)
 
             ax.vlines(cutpoint,0,1,ls='--',lw=1,color='black',alpha=0.2)
 
@@ -4879,8 +4890,10 @@ def  behaviour_generate_movingaveragestatistics():
                     fontsize='xx-small',ha='left',va='top',color='dodgerblue',transform=ax.transAxes)
             ax.text(0.1,0.9,'$P(N\\geq 20)$ = %6.5f'%(prob_ntrials_successes[mx,ux,num_success_mouse:].sum()),
                     fontsize='xx-small',ha='left',va='top',color='dodgerblue',transform=ax.transAxes)
-            # ax.text(0.1,0.9,'$P(L\\geq 10)$ = %6.9f'%(prob_atleastone_consecutive_length[mx,ux,cutpoint:].sum()),
-            #         fontsize='xx-small',ha='left',va='top',color='rebeccapurple',transform=ax.transAxes)
+            ax.text(0.1,0.8,'$P(L\\geq 10)$ = %6.9f'%(prob_atleastone_consecutive_length[mx,ux,cutpoint:].sum()),
+                    fontsize='xx-small',ha='left',va='top',color='rebeccapurple',transform=ax.transAxes)
+            ax.text(0.1,0.7,'$P(L\\geq 20)$ = %6.9f'%(prob_atleastone_consecutive_length[mx,ux,num_success_mouse:].sum()),
+                    fontsize='xx-small',ha='left',va='top',color='rebeccapurple',transform=ax.transAxes)
 
             # # combination of lengths we found
             # p = np.prod(np.array([prob_atleastone_consecutive_length[mx,ux,k-1:].sum() for k in consecutive_ma_mouse]))

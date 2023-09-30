@@ -52,7 +52,7 @@ plt.rcParams.update({'lines.linewidth': 1})
 
 # info about figure absolute sizes and nice fonts: https://jwalton.info/Embed-Publication-Matplotlib-Latex/
 
-globalsave = 0
+globalsave = 1
 
 # continuous_method = 'instfr'      # JRC spike sorting
 continuous_method = 'ks2ifr'        # kilosort2 spike sorting, with no drift
@@ -62,9 +62,9 @@ continuous_method = 'ks2ifr'        # kilosort2 spike sorting, with no drift
 # _____________
 # publications:
 conference = False
-resultpath = '../../../publish/journals/journal2020spring/figures/'
+resultpath = 'figures/'
 ext = '.pdf'
-ext = '.png'
+# ext = '.png'
 
 # resultpathprefix = '../results_ks/'
 # resultpathseries = 'tribe/'
@@ -940,13 +940,18 @@ def figure1():
 
 
     # training history dprimes
-    panel = 'D'
+    panel = 'd'
     colors = ['dodgerblue','olivedrab','navy','darkgreen']
     taskcontextlabels = ['visual only','audio only','visual context','audio context']
     mincomplex = [9,1,0,0]   #[9,1,12+11,12]
     xc = 0
     xt = []
     xl = []
+
+    # create a pandas dataframe with columns: type, session number, each string in datanamestrainings
+    colnames = ['sessiontype','sessionnumber']
+    colnames.extend(datanamestrainings)
+    sourcedata = pd.DataFrame(columns=colnames)
 
     for stx in [0,1,2,3]:            # 5th column is for the combined d-prime of va and av
         print(taskcontextlabels[stx], stx)
@@ -983,7 +988,10 @@ def figure1():
 
         axs.text(x[0]+(stx>=2)*1,4.4+(stx==2)/4,taskcontextlabels[stx],color=colors[stx],fontsize='x-small')
         if stx==2: axs.text(x[0]+1,4.4+1/2,'multimodal',color='black',fontsize='x-small')
+        contdf = pd.DataFrame(np.c_[np.tile(taskcontextlabels[stx],len(x)),x,container], columns=colnames)
+        sourcedata = pd.concat([sourcedata,contdf], ignore_index=True, sort=False)
 
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_1'+panel+'.csv',index=False)
     # this is the average of av and va
     axs.plot( x, containercombined,'-o', lw=0.3,color='black', alpha=0.6, markersize=5)
     axs.plot( x[-1], containercombined[-1,:][np.newaxis,:],'o', lw=0.3,color='white', alpha=1, markersize=4)
@@ -1031,7 +1039,7 @@ def figure1():
 
 
     # 1E behaviour total congruency fractions
-    panel = 'E'
+    panel = 'e'
 
     
 
@@ -1077,7 +1085,11 @@ def figure1():
                 pc.set_facecolor(colors[k])
                 pc.set_edgecolor(colorspercentiles[gx])
                 pc.set_alpha(0.4)
+            print(taskaspects[k], glabel, D.shape)
             axs.scatter(np.tile(k*4-0.5+gx,len(D)),D,color=colors[k],alpha=0.8)
+
+    sourcedata = P
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_1'+panel+'.csv')
 
     axs.set_xticks([-0.5, 0.5, 3.5, 4.5,7.5, 8.5,11.5, 12.5])
     axs.set_xticklabels(['go','nogo','go','nogo','go','nogo','go','nogo'],rotation=45)
@@ -1091,7 +1103,7 @@ def figure1():
     axs.spines['top'].set_visible(False)
 
 
-    figs.labelaxis(axs,panel)
+    figs.labelaxis(axs,panel,)
 
 
 
@@ -1108,7 +1120,7 @@ def figure1():
     # add behaviour detailed moving averages
     # behaviour symmetric and assymetric choices
 
-    panel = 'F'
+    panel = 'f'
     axs = ax[1,0]
 
 
@@ -1236,7 +1248,7 @@ def figure1():
     # generate inset axes
     axins = []
     for l in range(5):
-        axins.append(axs.inset_axes([0, 0.8-0.2*l, 1, 0.18],transform=axs.transAxes))
+        axins.append(axs.inset_axes([0, 0.8-0.2*l, 0.8, 0.18],transform=axs.transAxes))
         if l<4: axins[l].set_xticklabels([])
     axs.axis('off')
 
@@ -1249,6 +1261,7 @@ def figure1():
     # darkturquoise/deeppink: go/nogo         ->        black/red: go/nogo        
     # darkorchid/fuchsia  and    goldenrod/gold:               clever,relevant/clever,irrelevant   and    clueless,relevant/clueless,irrelevant
     ee_icp = np.r_[0,index_contextchangepoint,n_trials]
+    sourcedata = np.zeros((0,3))
     for cx in range(len(start)):
         for k in [1,2]:       # go, nogo
             label = gng[k]
@@ -1264,6 +1277,7 @@ def figure1():
                 highlight = np.copy(theta_[start[cx]:stop[cx],k])
                 # highlight[highlight>0.5] = np.nan
                 axs.plot(trialspan, highlight, ls=thls, lw=1.5, color=acolors[k], alpha=0.3, label=None)
+                sourcedata = np.vstack((sourcedata,np.c_[[label+labelpostfix]*len(trialspan),trialspan,highlight]))
 
                 for ix in range(len(ee_icp)-1):
                     if ix>0:   axs.vlines(ee_icp[ix]-0.5,-0.05,1.05,ls='--',lw=1,color='black',alpha=0.1)
@@ -1288,7 +1302,8 @@ def figure1():
                                 marker=['x','o'][s], color='black', alpha=0.7, label=None)
 
 
-
+    sourcedata = pd.DataFrame(sourcedata, columns=['trialtype','trialnumber','mafractioncorrect'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_1'+panel+'.csv',index=False)
 
     # show symmetric and assymetric areas
     axs = axins[4]
@@ -1309,11 +1324,11 @@ def figure1():
     axs.set_xlabel('trial number')
     axs.set_yticks([])
     axs.set_yticklabels([])#,fontsize='xx-small')
-    axsign = axs.inset_axes([-0.08,0.1, 0.03,0.9],transform=axs.transAxes)
+    axsign = axs.inset_axes([1.05,0.1, 0.03,0.9],transform=axs.transAxes)         # left [-0.08,0.1, 0.03,0.9]   right [1.3,0.1, 0.03,0.9]
     axsign.axis('off')
     axsign.add_patch(plt.Rectangle((0,0.25),1,0.4,\
         ec='rebeccapurple',fc='rebeccapurple',transform=axsign.transAxes))
-    axs.text(-1,0.36,'consistent\nperformance',transform=axsign.transAxes, horizontalalignment='right',verticalalignment='center',fontsize='x-small')
+    axs.text(1.2,0.36,'consistent\nperformance',transform=axsign.transAxes, horizontalalignment='left',verticalalignment='center',fontsize='x-small')
     
 
 
@@ -1331,14 +1346,76 @@ def figure1():
 
 
 
+    # f inset for probabilities
+    axsprobinset = ax[1,0].inset_axes([1.1, 2.5, 0.25, 2.6],transform=axs.transAxes)
+    dn = 'MT020_2'
+    n_trials,cutpoint,prob_ntrials_successes,prob_atleastone_consecutive_length,consecutive_ma_mouse = \
+             pickle.load(open(cacheprefix+'behaviour/probabilityconsistentperiods-n100000_%s'%dn,'rb'))
+
+
+    mx = 0    # mean bias model
+    ux = 3    # mean bias = 0.75
+    legendfontsize = 10
+    axsprobinset.semilogy(np.arange(n_trials)+1,[prob_ntrials_successes[mx,ux,c:].sum() for c in np.arange(n_trials)], color='dodgerblue',lw=2,alpha=0.8)
+    axsprobinset.semilogy(np.arange(n_trials)+1,[prob_atleastone_consecutive_length[mx,ux,c:].sum() for c in np.arange(n_trials)], color='rebeccapurple',lw=2,alpha=0.8)
+
+    num_success_mouse = sum(consecutive_ma_mouse)
+    axsprobinset.scatter(cutpoint,prob_ntrials_successes[mx,ux,cutpoint-1:].sum(), color='dodgerblue',alpha=0.8)
+    axsprobinset.scatter(num_success_mouse,prob_ntrials_successes[mx,ux,num_success_mouse-1:].sum(), marker='s', color='dodgerblue',alpha=0.8)
+    axsprobinset.scatter(cutpoint,prob_atleastone_consecutive_length[mx,ux,cutpoint-1:].sum(), color='rebeccapurple',alpha=0.8)
+    axsprobinset.scatter(num_success_mouse,prob_atleastone_consecutive_length[mx,ux,num_success_mouse-1:].sum(), marker='s',color='rebeccapurple',alpha=0.8)
+
+    axsprobinset.vlines(cutpoint,0,1,ls='--',lw=1,color='black',alpha=0.2)
+
+    axsprobinset.text(0.1,1.4,'● $P(N\\geq 10)$ = %3.1e'%(prob_ntrials_successes[mx,ux,cutpoint:].sum()),
+            fontsize=legendfontsize,ha='left',va='top',color='dodgerblue',transform=axsprobinset.transAxes)
+    axsprobinset.text(0.1,1.3,'■ $P(N\\geq 20)$ = %3.1e'%(prob_ntrials_successes[mx,ux,num_success_mouse:].sum()),
+            fontsize=legendfontsize,ha='left',va='top',color='dodgerblue',transform=axsprobinset.transAxes)
+    axsprobinset.text(0.1,1.2,'● $P(L\\geq 10)$ = %3.1e'%(prob_atleastone_consecutive_length[mx,ux,cutpoint:].sum()),
+            fontsize=legendfontsize,ha='left',va='top',color='rebeccapurple',transform=axsprobinset.transAxes)
+    axsprobinset.text(0.1,1.1,'■ $P(L\\geq 20)$ = %3.1e'%(prob_atleastone_consecutive_length[mx,ux,num_success_mouse:].sum()),
+            fontsize=legendfontsize,ha='left',va='top',color='rebeccapurple',transform=axsprobinset.transAxes)
+
+    # # combination of lengths we found
+    # p = np.prod(np.array([prob_atleastone_consecutive_length[mx,ux,k-1:].sum() for k in consecutive_ma_mouse]))
+    # ax.text(0.1,0.8,'$P(L\\geq 10)\cdot P(L\\geq 7)\cdot P(L\\geq 3)$ = %6.9f'%(p),
+    #         fontsize='xx-small',ha='left',va='top',color='red',transform=ax.transAxes)
+    # # probability of a single 17 length
+    # p = prob_atleastone_consecutive_length[mx,ux,sum(consecutive_ma_mouse)-1:].sum()
+    # ax.text(0.1,0.7,'$P(L\\geq 10+7+3)$ = %6.9f'%(p),
+    #         fontsize='xx-small',ha='left',va='top',color='fuchsia',transform=ax.transAxes)
+
+
+    axsprobinset.set_xticks([1,35,70])
+    axsprobinset.set_xlabel('num. of trials', fontsize='xx-small')
+
+    axsprobinset.set_ylim(1e-5,0.01)
+    axsprobinset.set_yticks([1e-5,0.01])
+    axsprobinset.set_ylabel('probability', fontsize='xx-small', labelpad=-20)
+
+    axsprobinset.tick_params(axis='both',which='major', labelsize='xx-small')
+    axsprobinset.spines['top'].set_visible(False)
+    axsprobinset.spines['right'].set_visible(False)
+
+
+
+
+
+
+
+
+
+
+
+
 
     # show remaining trials (the order of panels is intentionally exchanged, as we need the same order of mice)
-    panels = ['G','H','I','J']
+    panels = ['g','h','i','j']
 
     axs = ax[1,1]
     axins = []
     for l in range(4):
-        axins.append(axs.inset_axes([0, 0.75-0.25*l, 1, 0.215],transform=axs.transAxes))            # for two panels: [0, 0.5-0.5*l, 1, 0.45], for three panels: [0, 0.66666-0.33333*l, 1, 0.28], for four panels: [0, 0.75-0.25*l, 1, 0.24]
+        axins.append(axs.inset_axes([0.1, 0.75-0.25*l, 0.9, 0.215],transform=axs.transAxes))            # for two panels: [0, 0.5-0.5*l, 1, 0.45], for three panels: [0, 0.66666-0.33333*l, 1, 0.28], for four panels: [0, 0.75-0.25*l, 1, 0.24]
         axins[l].set_xticklabels([])
     axs.axis('off')
 
@@ -1386,6 +1463,9 @@ def figure1():
 
 
 
+
+    sourcedata_contextmodels = np.zeros((0,3))
+    sourcedata_parametermodels = np.zeros((0,3))
     for bx in range(2):
 
         # number of available trials
@@ -1397,7 +1477,7 @@ def figure1():
         axs.set_xticks(np.arange(0,n_mice))
         axs.set_xticklabels([])
         # axs.text(0.5,0.9,labels[bx],fontsize='x-small',color=colors[bx],verticalalignment='top',horizontalalignment='center',transform=axs.transAxes)
-        axs.legend(frameon=False, fontsize='x-small',loc='upper center')
+        axs.legend(frameon=False, fontsize=10,loc='upper center', ncol=2)
         
         # axs.set_title('consistent periods',fontsize='medium')
         axs.set_ylabel('num.\ntrials',fontsize='x-small',labelpad=12)
@@ -1430,8 +1510,7 @@ def figure1():
 
 
 
-        
-        
+
         # model plots
 
 
@@ -1451,6 +1530,10 @@ def figure1():
         for mx,m in enumerate(includedmodelids):
             axs.bar(x=mouserange+(bx-0.5)/3+(mx*0.12-0.06), height=LL[:,includerelevancyids[mx],bx,incongruentdata,m], width=0.10,
                     color=['white',colors[bx]][mx], edgecolor=colors[bx], alpha=[1,1][mx])
+            sourcedata_contextmodels = np.r_[ sourcedata_contextmodels,
+                                         np.c_[ np.tile(['visual context','audio context'][bx]+[', context opposite',', context aware'][mx],n_mice),
+                                                mouserange+(bx-0.5)/3+(mx*0.12-0.06), 
+                                                LL[:,includerelevancyids[mx],bx,incongruentdata,m] ]     ]
 
         # # broken deep bars: background cover
         # axs.add_patch(plt.Rectangle((-0.57,-1.34),1.94,0.47, ec='black', fc='white', zorder=100))
@@ -1490,6 +1573,10 @@ def figure1():
         for mx,m in enumerate(includedmodelids):
             axs.bar(x=mouserange+(bx-0.5)/2.2+(mx*0.12-0.12), height=LL[:,includerelevancyids[mx],bx,incongruentdata,m], width=0.10,
                     color=colors[bx], edgecolor=colors[bx], alpha=[0.167,0.6,1][mx])
+            sourcedata_parametermodels = np.r_[ sourcedata_parametermodels,
+                                         np.c_[ np.tile(['visual context','audio context'][bx]+[' context unaware',' context aware bias',' context aware lapse'][mx],n_mice),
+                                                mouserange+(bx-0.5)/3+(mx*0.12-0.06), 
+                                                LL[:,includerelevancyids[mx],bx,incongruentdata,m] ]     ]
 
 
         # legend
@@ -1533,9 +1620,9 @@ def figure1():
 
 
 
-    figs.labelaxis(axins[0],panels[0],x=-0.15,y=1.2)
+    figs.labelaxis(axins[0],panels[0],x=-0.175,y=1.2)
     for k in [1,2,3]:
-        figs.labelaxis(axins[k],panels[k],x=-0.15,y=0.95)
+        figs.labelaxis(axins[k],panels[k],x=-0.175,y=0.95)
 
 
 
@@ -1546,16 +1633,34 @@ def figure1():
 
     # fig.tight_layout()
 
+    contextnames = ['visual','audio']
+
+    sourcedata = np.vstack([  np.c_[ np.tile(contextnames[bx],n_mice), np.arange(0,n_mice)+(bx-0.5)/3, trialnumbers[:,bx*2]] for bx in range(2) ])
+    sourcedata = pd.DataFrame(sourcedata, columns=['context','barxpos','numtrials'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_1'+panels[0]+'.csv',index=False)
+
+
+    sourcedata = np.vstack([  np.c_[ np.tile(contextnames[bx],n_mice), np.arange(0,n_mice)+(bx-0.5)/3, fractioncorrect[:,bx*2]] for bx in range(2) ])
+    sourcedata = pd.DataFrame(sourcedata, columns=['context','barxpos','fractioncorrect'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_1'+panels[1]+'.csv',index=False)
+
+
+    sourcedata = sourcedata_contextmodels
+    sourcedata = pd.DataFrame(sourcedata, columns=['context and modelid','barxpos','loglikelihood'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_1'+panels[2]+'.csv',index=False)
+
+    sourcedata = sourcedata_parametermodels
+    sourcedata = pd.DataFrame(sourcedata, columns=['context and modelid','barxpos','loglikelihood'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_1'+panels[3]+'.csv',index=False)
+
+
 
 
     save = 0 or globalsave
     if save:
         # ext = '.pdf'
         # ext = '.png'
-        # fig.savefig(resultpath+'Fig1D,E_training,behaviordprime'+ext)
-        # fig.savefig(resultpath+'Fig1D,E_training,behaviordprime-horizontal'+ext)
-        # fig.savefig(resultpath+'Fig1D,E_training,behaviordprime,extended.png')
-        fig.savefig(resultpath+'Fig1D,E,F,G_training,behaviorcongruency,ma,models'+ext)
+        fig.savefig(resultpath+'Fig1d,e,f,g_training,behaviorcongruency,ma,models'+ext)
 
 
 
@@ -1772,7 +1877,7 @@ def figure2():
 
 
     # raster for multiple subsequent trials
-    panel = 'A'
+    panel = 'a'
 
     stimlabels = [' 45°  5 kHz','135° 10 kHz',' 45°  5 kHz',' 45° 10 kHz','135°  5 kHz']
     # raster plot
@@ -1835,14 +1940,23 @@ def figure2():
     figs.labelaxis(axras,panel,-0.025,1.0125)
 
 
+    # export sourcedata of eventplot
+    nunits = len(osp)
+    nevents = max([len(ospe) for ospe in osp])
+    sourcedata = np.nan*np.ones((nevents,nunits))
+    for n in range(nunits):
+        sourcedata[:len(osp[n]),n] = osp[n]    
+    colnames = ['neuron %d'%(n+1) for n in range(nunits) ]
+    sourcedata = pd.DataFrame(sourcedata, columns=colnames)
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_2'+panel+'.csv',index=False)
 
 
 
     
     # firing rates of selected cells
-    panel = 'B'
+    panel = 'b'
     
-    
+    sourcedata = np.empty((601,0))
     for cx,comparison in enumerate(taskaspects):
         for nx in range(len(taskaspects)):
             bx = final_selection[nx]     # in the end we only used the first saved neuron for all class in this mouse, final selection is all 0.
@@ -1854,6 +1968,7 @@ def figure2():
                 axs.fill_between(times,trajectory_matrix[cx,nx,:,cidx,bx,0]-trajectory_matrix[cx,nx,:,cidx,bx,1],\
                                         trajectory_matrix[cx,nx,:,cidx,bx,0]+trajectory_matrix[cx,nx,:,cidx,bx,1],\
                                   color=variablecolors[cx],alpha=(1.-2./3.*cidx)/2.)
+                sourcedata = np.c_[sourcedata, trajectory_matrix[cx,nx,:,cidx,bx,0]]
             axs.set_xlim(T['starttime']+200*pq.ms,T['endtime']-200*pq.ms)
             axs.set_xticks([0,3000])
             axs.set_yticks([0,20])
@@ -1908,7 +2023,11 @@ def figure2():
                 # axf.set_axis('off')
                 
     figs.labelaxis(axfr[0,0],panel)
-            
+
+    sourcedata = np.c_[times,sourcedata]
+    colnames = ['time [ms]']+['cell %d %s %s'%(nx+1,taskaspects[cx],classlabels[cx][cidx]) for cidx in [0,1] for nx in range(4) for cx in range(4) ]
+    sourcedata = pd.DataFrame(sourcedata, columns=colnames)
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_2'+panel+'.csv',index=False)
 
 
 
@@ -1916,7 +2035,7 @@ def figure2():
 
 
     # trajectories projected onto pca axis
-    panel = 'C'
+    panel = 'c'
     taskcolors = [ ['navy','darkgreen','purple','saddlebrown'],\
                    ['steelblue','c','mediumvioletred','orange'] ]
     classnames = [['45°','135°'],['5kHz','10kHz'],['attend visual','attend audio'],['lick','withhold lick']]
@@ -1938,7 +2057,8 @@ def figure2():
     t_1 = times[T['stimstart_idx']:T['stimend_idx']+1]
     t_oo = times[T['stimend_idx']:-skip_idx]
 
-    
+    sourcedata = np.empty((601,0))
+
     # fig,ax = plt.subplots(n_pc+3,len(taskaspects),figsize=(len(taskaspects)*8,(n_pc+3)*8))
     for cx,comparison in enumerate(taskaspects):
         
@@ -1972,6 +2092,7 @@ def figure2():
 
 
                 axs.plot( times, trial[:,px], lw=2,color=variablecolors[cx],alpha=1.-2./3.*aix,label=classnames[cx][aix] )
+                sourcedata = np.c_[sourcedata, trial[:,px]]
 
                 axs.fill_between(times, trial[:,px]-trial_e[:,px], trial[:,px]+trial_e[:,px], \
                                  color=variablecolors[cx],alpha=(1.-2./3.*aix)/2)
@@ -2002,6 +2123,10 @@ def figure2():
             figs.plottoaxis_stimulusoverlay(axs,T)
             
 
+    sourcedata = np.c_[times,sourcedata]
+    colnames = ['time [ms]'] + ['PC %d %s %s'%(px+1,taskaspects[cx],classnames[cx][aix]) for px in range(3) for aix in range(2) for cx in range(4) ]
+    sourcedata = pd.DataFrame(sourcedata, columns=colnames)
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_2'+panel+'.csv',index=False)
     
 
     figs.labelaxis(axpca[0,0],panel)
@@ -2012,13 +2137,16 @@ def figure2():
 
 
     # Panels for PCA signal variance
-    panel = 'D'
+    panel = 'd'
     n_pc_display = n_neurons_pca
     max_v = 0
     stim_av_width = int((100*pq.ms / T['dt']).magnitude)
     C_pc_signal_variance = C_pc_signal_variance_trajectory[:,T['stimstart_idx']:T['stimstart_idx']+stim_av_width,:,:].mean(axis=1)
     # C_pc_signal_variance = C_pc_signal_variance_timeaveraged
     C_ro_signal_variance = C_ro_signal_variance_trajectory[:,T['stimstart_idx']:T['stimstart_idx']+stim_av_width,:].mean(axis=1)
+
+    sourcedata = np.empty((n_pc_display,0))
+
     for cx,comparison in enumerate(taskaspects):
         axs = axsignal[cx]
         # C_signal = C_pc_signal_variance[cx,:n_pc_display,1]/(C_pc_signal_variance[cx,:n_pc_display,1].sum())
@@ -2032,6 +2160,8 @@ def figure2():
         axs.plot(np.arange(n_pc_display)+1,C_signal,'o-',lw=2,color=variablecolors[cx],label=comparison+' signal\ncumulative variance proportion')
         axs.plot(np.arange(n_pc_display)+1,R_signal_m,'--',lw=1,color='grey')
         axs.fill_between(np.arange(n_pc_display)+1, R_signal_el, R_signal_eh, color='grey',alpha=0.3)
+
+        sourcedata = np.c_[sourcedata, C_signal, R_signal_m]
 
         axs.plot(n_pc_display,C_signal[-1],'o',markersize=10, color=variablecolors[cx])
         axs.plot(n_pc_display,C_signal[-1],'o',markersize=8, color='white')
@@ -2091,7 +2221,13 @@ def figure2():
         figs.invisibleaxes(axsignal_inset,which=['top'])
         figs.invisibleaxes(axsignal_inset_total,which=['top'])
     
+
     
+    sourcedata = np.c_[np.arange(n_pc_display)+1,sourcedata,C_pc_signal_variance[0,:n_pc_display,1].cumsum(),C_ro_signal_variance[0,:n_pc_display,0].cumsum()]
+    colnames = ['PC','visual signal','visual  random', 'audio signal', 'audio random',
+                     'context signal','context random','choice signal','choice random', 'abs visual signal','abs visual random']
+    sourcedata = pd.DataFrame(sourcedata, columns=colnames)
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_2'+panel+'.csv',index=False)
     
     figs.labelaxis(axsignal[0],panel)
 
@@ -2428,7 +2564,7 @@ def figure3():
     # A,B schematics
 
 
-    panel = 'A'
+    panel = 'a'
     axs = ax[0,0]
     drawsubspaces(axs,0)
     figs.labelaxis(axs,panel,D2=True)
@@ -2436,13 +2572,13 @@ def figure3():
 
 
     # 
-    panel = 'K'
+    panel = 'k'
     axs = ax[3,0]
     drawsubspaces(axs,1)
     figs.labelaxis(axs,panel,D2=True)
             
 
-    # panel = 'K'   # this was the previous PCA schematics
+    # panel = 'k'   # this was the previous PCA schematics
     # axs = ax[3,0]
     # drawsubspaces(axs,3)
     # figs.labelaxis(axs,panel,D2=True)
@@ -2451,13 +2587,16 @@ def figure3():
 
 
     # B,E    # decoder trajectories
-    panels = ['B','E']
+    panels = ['b','e']
     dn = 'MT020_2'
     for bx,vartimecourse in enumerate([visualtimecourse,contexttimecourse]):
     
         axs = ax[bx,1]
         figs.plottoaxis_decoderrocauc(vartimecourse,axs,colorlist=['',variablecolors[bx]],plottrain=False)       # plot the test performance
         
+        sourcedata = pd.DataFrame(np.c_[ vartimecourse[1].times, vartimecourse[1][:,0] ], columns=['time','accuracy'])
+        sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_3'+panels[bx]+'.csv',index=False)
+
         # axs.plot(vartimecourse[1].times,shuffle_m,color='red')
         # axs.fill_between(vartimecourse[1].times,shuffle_m-shuffle_e,shuffle_m+shuffle_e,color='red',alpha=0.3)
         
@@ -2498,7 +2637,7 @@ def figure3():
 
     # C,F
     timecourselabels = ['PRE','ON\nearly','ON\nlate','POST']
-    panels = ['C','F']
+    panels = ['c','f']
     for bx in range(2):
         axs = ax[0+bx,1+1]        # first visual, below context
         ci = timegroups[:,bx,:].std(axis=0)*2/np.sqrt(len(datanames))
@@ -2508,6 +2647,11 @@ def figure3():
         artist = axs.boxplot(x=timegroups[:,bx,:], positions=-750+timestarts_idx[:4]*10, notch=True,usermedians=m,conf_intervals=ci,\
                              whis=[5,95],showfliers=False, labels=timecourselabels,widths=350)
 #        print(artist.keys())
+        # replace '\n' with ' ' in each timecourselabels, and store the result in a new variable
+        timecourselabels_nonewline = [timecourselabels[i].replace('\n',' ') for i in range(len(timecourselabels))]
+        sourcedata = pd.DataFrame(timegroups[:,bx,:],columns=timecourselabels_nonewline)
+        sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_3'+panels[bx]+'.csv',index=False)
+
         for element in artist.keys():
             plt.setp(artist[element], color=variablecolors[bx],linewidth=2)
         axs.scatter(np.repeat(-750+timestarts_idx[:4][np.newaxis,:]*10,repeats=8,axis=0),timegroups[:,bx,:],color='black',s=10)
@@ -2532,13 +2676,17 @@ def figure3():
 
 
     # coefficients
-    panels = ['D','G']
+    panels = ['d','g']
 
     classnames = [['45°','135°'],['attend\nvisual','attend\naudio']]
 
     for cx,comparison in enumerate(['visual','context']):
         axs = ax[cx,3]
         axs.barh(y=(np.arange(n_neuron)+1),width=c_db_means[cx,c_db_order,0],color=variablecolors[cx] )
+
+        sourcedata = pd.DataFrame(np.c_[np.arange(n_neuron)+1,c_db_means[cx,c_db_order,0]], columns=['neuron','coefficient'])
+        sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_3'+panels[cx]+'.csv',index=False)
+
         axs.set_yticks([1,10,20,31])
         # axs.invert_yaxis()
         axs.set_xlim(-0.5,0.5)
@@ -2569,7 +2717,7 @@ def figure3():
 
 
     # SUBSPACES
-    panel = 'L'
+    panel = 'l'
     
     n_showmice = datanamesefg.index('MT020_2')
     basisaspects = ['visual','context']
@@ -2589,9 +2737,16 @@ def figure3():
 
     axs = ax[3,1]
 
+    sourcedata = np.zeros((0,3))
     # plot the trial averages as points (av45,av135,iv45,iv135)
     for k in [0,1,2,3]:
         axs.plot(projections[k][:,0], projections[k][:,1], 'o',color=activitycolors[k],alpha=0.8)
+        sourcedata = np.r_[sourcedata,
+            np.c_[np.tile(['visual context 45','visual context 135','audio context 45','audio context 135'][k],len(projections[k]) ),
+                  projections[k][:,:2]]]
+    
+    sourcedata = pd.DataFrame(sourcedata, columns=['trial type','visual','context orthogonal coords.'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_3'+panel+'.csv',index=False)
 
     # basis vectors display start position
     x0 = -3.4
@@ -2688,7 +2843,7 @@ def figure3():
 
 
 
-    panel = 'M'
+    panel = 'm'
 
     # polar histogram of bases visual and context in all anumals
     
@@ -2724,6 +2879,8 @@ def figure3():
     # axs.plot(anglestats[0][chvix,cx],9,'o',color=colors[chvix][cx])
     # axs.text(anglestats[0][chvix,:].mean(),9,'p=%5.3f'%anglestats_t_p[chvix])
     axs.scatter(angles,9.5*np.ones(len(datanamesefg)),color='black',s=7,label=None)
+    sourcedata = pd.DataFrame(angles, columns=['angle'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_3'+panel+'.csv',index=False)
     axs.legend(frameon=False)
     # anglestats_t_p
     # axs.set_xlim(-np.pi/2,np.pi/2)
@@ -2744,15 +2901,17 @@ def figure3():
 
 
     # dynamics of dbnv angles between context and visual along the trial, all mice
-    panel = 'N'
+    panel = 'n'
     
     pair = [0,2]
     axs = ax[3,3]
     singlecolor = 'rebeccapurple'
     
+    sourcedata = times_angle
     for n,dn in enumerate(datanames):
         x = neph.smooth(angles_all[n,pair[0],pair[1]],kernelwidth=6,mode='same')
         x[:T['stimstart_idx']] = np.nan
+        sourcedata = np.c_[sourcedata,x]
 
         if n==0: axs.plot(times_angle,x,lw=0.8,color=singlecolor,alpha=0.2,label='single mice')
         else: axs.plot(times_angle,x,lw=0.8,color=singlecolor,alpha=0.2)
@@ -2764,8 +2923,9 @@ def figure3():
     
     axs.plot(times_angle,m,color=singlecolor,lw=2,label='mean of %d mice'%len(datanames))
     axs.fill_between(times_angle,m-2*e,m+2*e,color=singlecolor,alpha=0.2)#,label='2 s.e.m.')
-
-
+    sourcedata = np.c_[sourcedata,m]
+    sourcedata = pd.DataFrame(sourcedata, columns=['time']+datanames+['mean'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_3'+panel+'.csv',index=False)
     
     axs.legend(frameon=False)
     axs.set_xlim(T['offsettime']+200*pq.ms,T['endtime']-200*pq.ms)
@@ -2800,7 +2960,7 @@ def figure3():
     # behaviour symmetric and assymetric choices
 
 
-    panel = 'H'
+    panel = 'h'
     axs = ax[2,1]
 
 
@@ -3014,7 +3174,7 @@ def figure3():
 
 
     # timecourse of symmetric and asymmetric behaviour accuracy (bootstrap equalized)
-    panel = 'I'
+    panel = 'i'
     axs = ax[2,2]
 
     dn = 'MT020_2'
@@ -3046,6 +3206,9 @@ def figure3():
         axs.plot(times, m, color=symmetrycolors[rx], lw=2, label=symmetrylabels[rx])
         axs.fill_between(times, m-e, m+e, color=symmetrycolors[rx], alpha=0.15)
 
+    sourcedata = np.c_[times, accuracies_m[:,1,0,0], accuracies_m[:,1,0,1]]
+    sourcedata = pd.DataFrame(sourcedata, columns=['time']+symmetrylabels)
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_3'+panel+'.csv',index=False)
 
 
 
@@ -3084,7 +3247,7 @@ def figure3():
 
 
     # show behaviourally symmetric mice having better performance on cognitive decodability
-    panel = 'J'
+    panel = 'j'
     axs = ax[2,3]
     datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     n_mice = len(datanames)
@@ -3142,6 +3305,13 @@ def figure3():
 
     axs.boxplot(x=d, positions=np.hstack([np.arange(n_mice),[n_mice+2]]), whis=[ 2.5, 97.5 ], notch=True, bootstrap=1000, showfliers=False)
 
+    nl = [ len(d1) for d1 in d ]
+    sourcedata = np.nan*np.ones((max(nl),n_mice+1))
+    for n in range(n_mice+1):
+        sourcedata[:nl[n],n] = d[n]
+    sourcedata = pd.DataFrame(sourcedata, columns=datanames+['all'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_3'+panel+'.csv',index=False)
+
     axs.set_xticks([n_mice//2, n_mice+2])
     axs.set_xticklabels(['individual\nanimals','all\nanimals'])
     axs.set_xlim([-1,n_mice+2+2])
@@ -3173,15 +3343,6 @@ def figure3():
 
 
 
-
-
-# # changed subplot panels in text:
-# H I J K
-# L M N
-
-# # to these
-# K L M N
-# H I J
 
 
 
@@ -3448,7 +3609,7 @@ def figure4():
     
     
    # A
-    panel = 'A'
+    panel = 'a'
     colors = ['navy','mediumvioletred']
     xlabels = ['visual PRE','mean context accuracy\npre stimulus']
     ylabels = ['visual early ON','mean context accuracy\n on stimulus']
@@ -3460,6 +3621,10 @@ def figure4():
     y_se = timegroups_se[:,bx,1]
     axs.scatter(x[0],y[0],s=150,marker='o',color=colors[bx],alpha=0.8,label='indiv. mice')
     axs.scatter(x[1:],y[1:],s=150,marker='o',color=colors[bx],alpha=0.8)
+    
+    sourcedata = pd.DataFrame(np.c_[x,y],columns=['context PRE','context ON'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_4'+panel+'.csv',index=False)
+
     for n in range(len(x)):
         axs.errorbar(x[n],y[n],x_se[n],y_se[n],color='grey',alpha=0.8)
     axs.set_xlim(0.45,1.01)
@@ -3498,7 +3663,7 @@ def figure4():
 
 
     # B, time-decay presence, visual and context, from accuracy crosstest decays
-    panel = 'B'
+    panel = 'b'
 
 
     dn = 'DT017'    
@@ -3509,6 +3674,8 @@ def figure4():
     taskaspects = ['visual','context']
     times = np.arange(-1500,4400,10)*pq.ms
 
+    sourcedata = np.zeros((len(times),len(taskaspects)*len(trainingpoints)+1))
+    sourcedata[:,0] = times.magnitude
     for tx,trainingpoint_idx in enumerate(trainingpoints_idx):
         axs = ax[0,1+tx]
         for cix,taskix in enumerate([0,2]):
@@ -3520,6 +3687,7 @@ def figure4():
             #     e[:T['stimstart_idx']] = np.nan   # visual pre is nonexistent
             axs.plot(times,x,lw=2,color=colors[cix],label='%s accuracy'%taskaspects[cix])
             axs.fill_between(times,x-e,x+e,color=colors[cix],alpha=0.3)
+            sourcedata[:,cix+tx*2+1] = x
     
         axs.plot([trainingpoints[tx],trainingpoints[tx]],[0.5,1.0],lw=1,color='black',label='trained')
     
@@ -3545,13 +3713,15 @@ def figure4():
 
 
 
+    sourcedata = pd.DataFrame(sourcedata,columns=['time']+['%s %s'%(ta,tp) for ta in taskaspects for tp in trainingpoints.magnitude])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_4'+panel+'.csv',index=False)
 
 
 
 
     
     # 2D accuracy test matrices    
-    panels = ['C','F']
+    panels = ['c','f']
 
     dn = 'DT017'    
     n_cherry = datanames.index(dn)
@@ -3599,6 +3769,9 @@ def figure4():
     
         figs.labelaxis(axs,panels[cix])
 
+        sdt = np.arange(-1500,4510,10)
+        sourcedata = pd.DataFrame(x, index=sdt[:(x.shape[0])], columns=sdt[:(x.shape[1])])
+        sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_4'+panels[cix]+'.csv')
 
 
 
@@ -3686,7 +3859,7 @@ def figure4():
 
     # forward decay rate    
     # panels = [['E','F'],['H','I']]
-    panels = ['D','G']
+    panels = ['d','g']
     # EF single mice,   # H,I all mice
     times = np.arange(sh[2])*T['dt']+T['offsettime']
 
@@ -3720,12 +3893,15 @@ def figure4():
 
 
         axs = ax[1+cix,1]
+        sourcedata = np.zeros((len(times),sh[0]+2))
+        sourcedata[:,0] = times.magnitude
         # plot all mice
         for n in range(sh[0]):
             x = neph.smooth(fdr[n,taskix,:,0],10,mode='same')
             # if taskix==0: x[:T['stimstart_idx']] = np.nan   # visual pre is nonexistent
             if n==0: axs.plot(times,x,lw=0.5,color=colors[cix],alpha=0.4,label='single mice, smoothed')
             else: axs.plot(times,x,lw=0.5,color=colors[cix],alpha=0.4)
+            sourcedata[:,n+1] = x
         
         # plot mean
         dr=fdr[:,taskix,:,0]   #,bdr[:,taskix,:,0]]:
@@ -3736,7 +3912,8 @@ def figure4():
         #     e[:T['stimstart_idx']] = np.nan / pq.ms  # visual pre is nonexistent
         axs.plot(times,m,lw=3,color=colors[cix],label='mean of %d mice'%sh[0])
         axs.fill_between(times,m-e,m+e,color=colors[cix],alpha=0.3,label='2 s.e.m.')
-    
+        sourcedata[:,sh[0]+1] = m
+
         axs.set_yticks([0,0.5,1,1.5])
 
         axs.legend(frameon=False,loc=2)
@@ -3759,7 +3936,8 @@ def figure4():
         axs.spines['top'].set_visible(False)
 
 
-
+        sourcedata = pd.DataFrame(sourcedata,columns=['time']+datanames+['mean'])
+        sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_4'+panels[cix]+'.csv',index=False)
 
 
 
@@ -3768,7 +3946,7 @@ def figure4():
 
 
     # DV dynamics: rotation angles each to its own
-    panels = ['E','H']
+    panels = ['e','h']
 
     #  n_cherry use the same mouse for angles
 
@@ -3802,7 +3980,8 @@ def figure4():
         figs.labelaxis(axs,panels[cix])
 
 
-
+        sourcedata = pd.DataFrame(x, index=sdt[:(x.shape[0])], columns=sdt[:(x.shape[1])])
+        sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_4'+panels[cix]+'.csv')
 
 
 
@@ -3850,7 +4029,7 @@ def figure4():
     # K example animal 2 non-blocked, J context nullspace recurrent timecourse, example animal 2, K example animal 2, with the first context DV subtracted, 
     # M context nullspace recurrent deletion for all animals, mean acc remaining, M 1st subspace drop in context vs. drop between on and pre original
 
-    panels = ['K','M']
+    panels = ['k','m']
     dn = 'MT020_2'  # animal with contiunous context representation
     n = datanames.index(dn)
     ssids = [0,1]        # subspace code
@@ -3889,7 +4068,9 @@ def figure4():
     
         figs.labelaxis(axs,panels[i])
 
-
+        sdt = np.arange(-1500,4510,10)
+        sourcedata = pd.DataFrame(x, index=sdt[:(x.shape[0])], columns=sdt[:(x.shape[1])])
+        sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_4'+panels[i]+'.csv')
     
 
 
@@ -3982,7 +4163,7 @@ def figure4():
 
 
 
-    panel = 'L'
+    panel = 'l'
     ax[4,0].remove()
     ax[4,0] = fig.add_subplot(5,3,13, projection='3d')
     axs = ax[4,0]
@@ -3995,7 +4176,7 @@ def figure4():
 
 
     # correlations:       drop in mean first context decoder accuracy   vs.   drop between mean pre and on accuracy
-    panel = 'N'
+    panel = 'n'
     axs = ax[4,2]
     numrecfn = '1'
     comparison = 'context'
@@ -4145,6 +4326,9 @@ def figure4():
     axs.plot(y,nullspace[:,0], 'o',markerfacecolor='mediumvioletred', markeredgecolor='mediumvioletred', markersize=10, color='mediumvioletred',label='from full space')
     axs.plot(y1,nullspace[:,1], 'o',markerfacecolor='magenta', markeredgecolor='magenta', markersize=10, color='magenta',label='from nullspace')
 
+    sourcedata = pd.DataFrame({ 'space':np.hstack((np.tile('full space',len(ns)), np.tile('null space',len(ns)))), 'mouse':np.hstack((ns,ns)),
+                               'blockiness':np.hstack((y, y1)), 'accuracy':np.hstack((nullspace[:,0],nullspace[:,1])) })
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_4'+panel+'.csv',index=False)
 
     # for ix,(xr,yr) in enumerate(zip((y,y1),(nullspace[:,0],nullspace[:,1]))):
     #     xp = np.array(xr)
@@ -4225,7 +4409,7 @@ def figure4():
 
 
 
-    panels = ['I','J']        #,'O','P']
+    panels = ['i','j']        #,'O','P']
 
 
     n_mice = len(datanames)
@@ -4291,6 +4475,10 @@ def figure4():
         # cf = axs.pcolormesh(times,np.arange(n_neurons+1),c_db_matrix[:,order].T,vmin=-0.5,vmax=+0.5,cmap=cmap)
         cf = axs.pcolormesh(times,np.arange(n_neurons_all),cellmatrix.T,vmin=-0.5,vmax=+0.5,cmap=cmap)
         fig.colorbar(cf,ax=axs,ticks=np.arange(-1,1.1,0.5),label='coefficients [SU]')
+
+        sourcedata = pd.DataFrame(cellmatrix.T, index=np.arange(n_neurons_all), columns=times)
+        sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_4'+panels[ox]+'.csv')
+
         # axs.hlines(changepoint,T['starttime'],T['endtime'],color='white',lw=2)
         axs.vlines( (T['stimstarttime'],T['stimendtime']),0,n_neurons_all,color='white',lw=2)
         # axs.set_ylim(0,n_neurons)
@@ -4643,7 +4831,7 @@ def figure5():
 
     
     # difference between same decoders, only first 0.5 sec of stimulus presentation
-    panel = 'A'
+    panel = 'a'
     axs = ax[0,0]
     M = []
     for n,dn in enumerate(datanames):
@@ -4662,11 +4850,17 @@ def figure5():
     violins = axs.violinplot(positions=[n+2], dataset=np.vstack(M[:,150:200]), widths=[0.5], showmeans=True, showextrema=False, quantiles=None)
     for v in violins['bodies']:  v.set_facecolor('navy'); v.set_edgecolor('navy'); v.set_alpha(0.8)
 
+    sourcedata = np.r_[np.hstack(M[:,150:200].T),np.nan*np.ones((50*(len(datanames)-1),len(datanames)))]
+
+    sourcedata = np.c_[sourcedata,np.vstack(M[:,150:200])]
+    sourcedata = pd.DataFrame( sourcedata, columns=datanames+['all'] )
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_5'+panel+'.csv', index=False)
+
     figs.plottoaxis_chancelevel(axs)
     axs.set_yticks([-0.2,0,0.2])
     axs.set_ylim(-0.2,0.2)
-    axs.set_xticks([0,1,2,3,4,5,6,7,8,9,11])
-    axs.set_xticklabels(['','','','','','individual animals','','','','','all'])
+    axs.set_xticks([0,1,2,3,4,5,6,7,9])
+    axs.set_xticklabels(['','','','','individual animals','','','','all'])
 
     axs.set_title('attend visual $-$ attend audio',fontsize='medium')
     axs.set_ylabel('visual decoding\naccuracy difference',fontsize='medium',labelpad=-20)
@@ -4683,13 +4877,18 @@ def figure5():
 
     # trajectories
     
-    
     for cx,comparison in enumerate(taskaspects): # attend visual, ignore visual
         # visual is 0, context is 2, so cx index*2 will be the good one
         # similarly we don't need miss and false alarm trials for this figure, so skip index 1 and 3
         classresponses = [ cr for crx,cr in enumerate(projected_dynamics_all[n_single][0][cx]) if crx in [0,2] ]
         classresponses_context = [ cr for crx,cr in enumerate(projected_dynamics_all[n_single][1][cx]) if crx in [0,2] ]
-        
+
+        if cx==0:
+            sourcedata2d = np.empty( (len(classresponses[0][0][T['stimstart_idx']:T['stimend_idx']+1,0]),0) )
+            sourcedatavisual = t_on
+            sourcedatacontext = t_on
+
+
         for aix,(classresponse,classresponse_context) in enumerate(zip(classresponses,classresponses_context)): # gp through classes  45h,m and 135c,f
             # we only need visual and context
             
@@ -4721,7 +4920,7 @@ def figure5():
             trial_cx_e_on = trial_cx_e[T['stimstart_idx']:T['stimend_idx']+1,:]
 
 
-            panel = 'B'
+            panel = 'b'
 
             # 2D 2 dbnv
             axs = ax[0,1]
@@ -4744,7 +4943,7 @@ def figure5():
             axs.plot( trial_av_on[:,0], trial_av_on[:,1], lw=5,color=taskcolors[cx][aix],alpha=alpha,label='%s %s'%(classnames[0][aix], comparison) )
             # axs.plot( trial_av_post[:,0], trial_av_post[:,1], '--',lw=2,color=taskcolors[cx][aix],alpha=alpha )
             
-            
+            sourcedata2d = np.c_[sourcedata2d,trial_av_on[:,0],trial_av_on[:,1]]
             
             # basis vectors
             if cx==1:
@@ -4772,7 +4971,7 @@ def figure5():
             bx = 0      # in both task variables, we need the first projection basis
 
 
-            panel = 'C' # projection to visual DV
+            panel = 'c' # projection to visual DV
             axs = ax[1,0]
 
             # single trial activities
@@ -4789,6 +4988,8 @@ def figure5():
             axs.plot( [t_on[0]], [trial_av_on[0,bx]],  'o',markersize=15,color=taskcolors[cx][aix],alpha=alpha)
             axs.plot( t_on, trial_av_on[:,bx], lw=5,color=taskcolors[cx][aix],alpha=alpha,label='%s %s'%(classnames[0][aix], comparison))
             # axs.plot( t_post, trial_av_post[:,bx],'--', color=taskcolors[cx][aix],alpha=alpha)
+
+            sourcedatavisual = np.c_[sourcedatavisual,trial_av_on[:,bx]]
 
             axs.fill_between( t_on,trial_av_on[:,bx]-trial_av_e_on[:,bx],trial_av_on[:,bx]+trial_av_e_on[:,bx],\
                         color=taskcolors[cx][aix], alpha=0.2)
@@ -4819,11 +5020,12 @@ def figure5():
 
 
 
-            panel = 'D' # projection to context DV
+            panel = 'd' # projection to context DV
             axs = ax[1,1]
 
             axs.plot( [t_on[0]], [trial_cx_on[0,bx]],  'o',markersize=15,color=taskcolors[cx][aix],alpha=alpha)
             axs.plot( t_on, trial_cx_on[:,bx], lw=5,color=taskcolors[cx][aix],alpha=alpha,label='%s %s'%(classnames[0][aix], comparison))
+            sourcedatacontext = np.c_[sourcedatacontext,trial_cx_on[:,bx]]
 
             axs.fill_between( t_on,trial_cx_on[:,bx]-trial_cx_e_on[:,bx],trial_cx_on[:,bx]+trial_cx_e_on[:,bx],\
                         color=taskcolors[cx][aix], alpha=0.2)
@@ -4855,11 +5057,33 @@ def figure5():
 
 
     
+    colnames = np.hstack([ ['visual DV proj, %s, %s'%(ai,c),'context DV proj, %s, %s'%(ai,c)]
+                            for ai in ['45','135'] for c in ['attend visual','ignore visual'] ])
+    sourcedata = pd.DataFrame( sourcedata2d, columns=colnames )
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_5'+'b'+'.csv', index=False)
+
+    colnames = ['visual DV proj, %s, %s'%(ai,c) for ai in ['45','135'] for c in ['attend visual','ignore visual']]
+    sourcedata = pd.DataFrame(sourcedatavisual, columns=['time']+colnames)
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_5'+'c'+'.csv', index=False)
+
+    colnames = ['context DV proj, %s, %s'%(ai,c) for ai in ['45','135'] for c in ['attend visual','ignore visual']]
+    sourcedata = pd.DataFrame(sourcedatacontext, columns=['time']+colnames)
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_5'+'d'+'.csv', index=False)
+
+
+
+
+
+    # differences
+
     signs = np.zeros((2,len(datanames),1))
-    for aix in [0,1]:
+    sourcedatas = [[ t_on for aix in range(2) ] for taskx in range(2) ]
+
+
+    for aix in [0,1]:   # 45 135
         
-        panels = [['E','F'],['G','H']]
-        axs = ax[2,aix]
+        panels = [['e','f'],['g','h']]
+
         
 
 
@@ -4879,7 +5103,8 @@ def figure5():
                 
                 axs.plot(t_on,differences_task[n][aix][0],color=tracolor,lw=2,alpha=0.15)
                 
-                
+                sourcedatas[taskx][aix] = np.c_[sourcedatas[taskx][aix],differences_task[n][aix][0]]
+
                 # axs.fill_between(times,differences[n][aix][0]-differences[n][aix][2],\
                 #                        differences[n][aix][0]+differences[n][aix][2],\
                 #                        color=np.array([0,0,(n+1.)/n_mice]),alpha=0.02)
@@ -4900,7 +5125,7 @@ def figure5():
             axs.fill_between(t_on,m-e,m+e,color=diffcolor[taskx][aix],alpha=0.2)
             
 
-
+            sourcedatas[taskx][aix] = np.c_[sourcedatas[taskx][aix],m]
 
 
             
@@ -4960,7 +5185,10 @@ def figure5():
             print('stationarity: panel',panels[aix][taskx], ', p=%4.3f'%p)
 
 
-
+    for aix in [0,1]:
+        for taskx in [0,1]:
+            sourcedatas[taskx][aix] = pd.DataFrame(sourcedatas[taskx][aix], columns=['time']+datanames+['mean'])
+            sourcedatas[taskx][aix].to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_5'+panels[aix][taskx]+'.csv', index=False)
 
     # this will be for (n_mice, stimulus, context, trajectory)
     print('projection rates: visual: %4.3f (%4.3f) +/- %4.3f, context: %4.3f (%4.3f) +/- %4.3f'%(\
@@ -5249,7 +5477,7 @@ def figure6():
 
 
     # A
-    panel = 'A'
+    panel = 'a'
 
     axs = ax[0,0]
     figs.plottoaxis_decoderrocauc(choicetimecourse,axs,colorlist=['',variablecolors[1]],plottrain=False)       # plot the test performance
@@ -5264,6 +5492,9 @@ def figure6():
     # axins = axs.inset_axes([-0.42,0.55, 0.4,0.4],transform=axs.transAxes)
     # drawschematics(axins,1); axins.axis('off')
     
+    sourcedata = pd.DataFrame(np.c_[ choicetimecourse[1].times, choicetimecourse[1][:,0] ], columns=['time','accuracy'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_6'+panel+'.csv', index=False)
+
     figs.labelaxis(axs,panel,x=-0.3)
 
 
@@ -5274,7 +5505,7 @@ def figure6():
 
 
     # B
-    panel = 'B'
+    panel = 'b'
     timecourselabels = ['PRE','ON\nearly','ON\nlate','POST']
     axs = ax[0,1]
     ch = 1 # show choice
@@ -5285,6 +5516,11 @@ def figure6():
     artist = axs.boxplot(x=timegroups[:,ch,:], positions=-750+timestarts_idx[:4]*10, notch=True,usermedians=m,conf_intervals=ci,\
                 whis=[5,95],showfliers=False,labels=timecourselabels,widths=350)
     axs.scatter(np.repeat(-750+timestarts_idx[:4][np.newaxis,:]*10,repeats=8,axis=0),timegroups[:,ch,:],color='black',s=10)
+
+    # replace '\n' with ' ' in each timecourselabels, and store the result in a new variable
+    timecourselabels_nonewline = [timecourselabels[i].replace('\n',' ') for i in range(len(timecourselabels))]
+    sourcedata = pd.DataFrame(timegroups[:,ch,:],columns=timecourselabels_nonewline)
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_6'+panel+'.csv',index=False)
 
     for element in artist.keys():
         plt.setp(artist[element], color=variablecolors[1],linewidth=2)
@@ -5319,7 +5555,7 @@ def figure6():
 
     # search-hyperjump keyword: asdf
     # SUBSPACES for Context vs. Choice
-    panel = 'C'
+    panel = 'c'
     
     n_showmice = datanames.index('DT017')
     basisaspects = ['context','choice']
@@ -5339,6 +5575,9 @@ def figure6():
     #             basis[cx][i,bx] = -basis[cx][i,bx]
 
 
+    maxproj = max([len(projections[cx][k]) for cx in [0,1] for k in [0,1,2,3]])
+    sourcedata = np.nan*np.ones((maxproj,2*2*4))
+    sourcedatalabels = []
     for cx,comparison in enumerate(['attend visual','attend audio']):
         axs = ax[1,cx]
         print(cx)
@@ -5352,7 +5591,8 @@ def figure6():
                 markersize = [8,10,8,10][k]
 
                 axs.plot(projections[cx][k][:,0], projections[cx][k][:,1], 'o',markersize=markersize,color=activitycolors[k],mfc=facecolors[k],alpha=0.8)
-    
+                sourcedata[:len(projections[cx][k]),cx*8+k*2:cx*8+k*2+2] = projections[cx][k][:,:2]
+                #add a pair of 'choice','context' to two new columns, and to each add the attended context and the correctness
     
                 # axs.plot(projections[bp[b,0],preon,0][ixgohit],      projections[bp[b,1],preon,0][ixgohit],      'o',markersize=8,color=activitycolors[0],alpha=0.8)
                 # axs.plot(projections[bp[b,0],preon,0][ixgomiss],     projections[bp[b,1],preon,0][ixgomiss],     'X',markersize=10,color=activitycolors[4],alpha=0.9)
@@ -5362,6 +5602,8 @@ def figure6():
                 # plot the cov ellipsoids over the per trial activities
                 figs.confidence_ellipse(projections[cx][k][:,0], projections[cx][k][:,1], axs, n_std=2.0, facecolor=activitycolors[k],alpha=0.15)
     
+            lab = ['av ','aa '][cx] + ['correct','error'][k%2]
+            sourcedatalabels.extend(['choice %s'%lab,'context %s'%lab])
     
     
         # basis vectors
@@ -5480,6 +5722,8 @@ def figure6():
 
 
 
+    sourcedata = pd.DataFrame(sourcedata, columns=sourcedatalabels)
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_6'+panel+'.csv',index=False)
 
 
 
@@ -5494,9 +5738,7 @@ def figure6():
 
 
 
-
-
-    panel = 'D'
+    panel = 'd'
 
     # polar histogram of bases visual and context in all animals
     
@@ -5506,7 +5748,7 @@ def figure6():
     
     width=(edges[1]-edges[0])/2
     n_bins = len(edges)-1
-
+    sourcedata = np.nan*np.ones((len(datanames),0))
     for cx,comparison in enumerate(['attend','ignore']):
 
         anglecounts = np.zeros((n_bins,2))        # {basisvectors vi,ch}   x context
@@ -5528,7 +5770,7 @@ def figure6():
         # x = np.arange(0,edges[-1],np.pi/180)  #edges[:-1]+width
         # axs.plot(x,kde(x),color=color,lw=2,alpha=0.7)
         axs.scatter(angles,9.5*np.ones(len(datanames)),color='black',s=7,label=None)
-
+        sourcedata = np.c_[sourcedata,angles]
         
         
         #                axs.plot(edges[:-1]+width, anglecounts[:,chvix,cx],'o-',\
@@ -5552,12 +5794,8 @@ def figure6():
 
 
 
-
-
-
-
-
-
+    sourcedata = pd.DataFrame(sourcedata, columns=['angle [rad] attend visual','angle [rad] attend audio'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_6'+panel+'.csv',index=False)
 
 
 
@@ -5576,6 +5814,12 @@ def figure6():
     save = 0 or globalsave
     if save:
         fig.savefig(resultpath+'Fig6_choice'+ext,bbox_inches='tight')
+
+
+
+
+
+
 
 
 
@@ -5684,18 +5928,25 @@ def figure7():
     
     
     # patching together 3  50 ms width runspeed distributions
-    panel = 'A'
+    panel = 'a'
     axs = axtop[0,0]
     timepoints = [150,155,160]
     timecourseindices = np.array(timepoints,dtype=np.int16)//decoderwidth
 
+    sourcedata = runspeedlevels[:-1]
     for tx,t in enumerate(timecourseindices):
         color = np.array(mcs.to_rgb('mediumvioletred'))*((tx+1)/(patchwidth+2))
         axs.plot(runspeedlevels[:-1],r_d[n_cherry][t,:,0],lw=2,color=color,label='at %d ms'%(t*decoderwidth*T['dt']-1500*pq.ms))
         # axs.plot(runspeedlevels[:-1],r_d[n_cherry][t,:,1],'--',lw=2,color=np.array(mcs.to_rgb('mediumvioletred'))*((tx+1)/(patchwidth+2)),label='av %dms'%(t*decoderwidth*T['dt']))
+        sourcedata = np.c_[sourcedata,r_d[n_cherry][t,:,0]]
 
     t = timecourseindices[0]    
     axs.plot(runspeedlevels[:-1],r_d[n_cherry][t:t+patchwidth,:,0].sum(axis=0),lw=4,color=np.array(mcs.to_rgb('mediumvioletred')),label='sum')
+    sourcedata = np.c_[sourcedata,r_d[n_cherry][t:t+patchwidth,:,0].sum(axis=0)]
+    sourcedata = pd.DataFrame(sourcedata.astype(np.int32),columns=[
+                        'runspeed [cm/s]']+['%d ms'%((t*decoderwidth*T['dt']-1500*pq.ms).magnitude) for t in timecourseindices]+['sum'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_7'+panel+'.csv',index=False)
+
 
     axs.set_ylabel('# trials')
     axs.set_xlabel('runspeed [cm/s]')
@@ -5715,18 +5966,24 @@ def figure7():
 
 
     # selected number of trials
-    panel = 'B'
+    panel = 'b'
     axs = axtop[0,1]
     timepoints = [150,155,160]
     timecourseindices = np.array(timepoints,dtype=np.int16)//decoderwidth
     
     colors_classes = ['rebeccapurple','darkcyan']
     t = timecourseindices[0]
+    sourcedata = runspeedlevels[:-1]
     for clx in [0,1]:
         axs.plot(runspeedlevels[:-1],r_d[n_cherry][t:t+patchwidth,:,clx].sum(axis=0),lw=4,color=colors_classes[clx],label=['attend visual','ignore visual'][clx])
+        sourcedata = np.c_[sourcedata,r_d[n_cherry][t:t+patchwidth,:,clx].sum(axis=0)]
 
     r_d_min = np.min(r_d[n_cherry][t:t+patchwidth,:,:].sum(axis=0),axis=1)
     axs.fill_between(runspeedlevels[:-1],np.zeros(len(r_d_min)),r_d_min,ec=None,fc='mediumvioletred',alpha=0.15,label='# selected trials')
+    sourcedata = np.c_[sourcedata,r_d_min]
+    sourcedata = pd.DataFrame(sourcedata.astype(np.int32),columns=['runspeed [cm/s]','attend visual','ignore visual','selected trials'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_7'+panel+'.csv',index=False)
+                                                                   
 
     axs.set_ylabel('# trials')
     axs.set_xlabel('runspeed [cm/s]')
@@ -5749,7 +6006,7 @@ def figure7():
 
 
     # schematics: runspeed equalization selection activity projections
-    panel = 'C'
+    panel = 'c'
     
     axs = axtop[0,2]
 
@@ -5788,7 +6045,7 @@ def figure7():
 
     
     # decoder acc. single mouse
-    panel = 'D'
+    panel = 'd'
     axs = axtop[1,0]
 
 
@@ -5796,6 +6053,14 @@ def figure7():
 
     figs.plottoaxis_decoderrocauc(ad_n[n_cherry][s][cx][:2],axs,colorlist=['white','black'],plottrain=False,onlysem=True,label='original')       # plot the performance
     figs.plottoaxis_decoderrocauc(ad_r[n_cherry][s][cx][:2],axs,colorlist=['white','mediumvioletred'],plottrain=False,onlysem=True,label='locomotion dist. equalized')       # plot the performance
+    
+    sourcedata = pd.DataFrame(np.c_[ad_n[n_cherry][s][cx][0].times,
+                                    ad_n[n_cherry][s][cx][1][:,0],
+                                    ad_r[n_cherry][s][cx][1][:,0]],
+                                    columns=['time','original','locomotion dist. equalized'])
+
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_7'+panel+'.csv',index=False)
+
     figs.setxt(axs)
     axs.set_ylim(0.45,1.05)
     axs.set_xlim(-1300,4200)
@@ -5822,7 +6087,7 @@ def figure7():
 
 
     # dec. acc. all mice
-    panel = 'E'
+    panel = 'e'
     axs = axtop[1,1]
 
 
@@ -5832,6 +6097,9 @@ def figure7():
     differences = np.zeros((n_mice,len(ad_r[0][s][cx][1][:,0])))
     for n,dn in enumerate(datanames):
         differences[n,:] = (ad_r[n][s][cx][1][:,0]-ad_n[n][s][cx][1][:,0]).squeeze()
+
+    sourcedata = pd.DataFrame(np.c_[times,differences.T],columns=['time [ms]']+['%s'%dn for dn in datanames])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_7'+panel+'.csv',index=False)
     
     M = differences.mean(axis=1)
     S = differences.std(axis=1)
@@ -5891,7 +6159,7 @@ def figure7():
 
 
     # runspeed shift has no effect
-    panel = 'F'
+    panel = 'f'
     axs = axtop[1,2]
 
     
@@ -5899,13 +6167,16 @@ def figure7():
     timecourseindices = np.array((timepoints-T['offsettime'])/T['dt'],dtype=np.int16)//decoderwidth//patchwidth
     timepointlabels = ['%d ms'%tp for tp in timepoints ]
     
-    
+    sourcedata = runshifts_times    
     for tx,t in enumerate(timecourseindices):
         tc = np.array(mcs.to_rgb('mediumvioletred'))
         tc /= max(tc)
         colors = np.array(tc) * (tx+1) /  (len(timecourseindices)+2)
         shifteddecoder_acc = [ ad_n[n_cherry][s][cx][1][t,0] for s in range(len(runshifts_times)) ]
         axs.plot(runshifts_times,shifteddecoder_acc,lw=3,color=colors,label=timepointlabels[tx] )
+        sourcedata = np.c_[sourcedata,shifteddecoder_acc]
+    sourcedata = pd.DataFrame(sourcedata,columns=['runshift [ms]']+timepointlabels)
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_7'+panel+'.csv',index=False)
 
     axs.legend(frameon=False)
     
@@ -5926,7 +6197,7 @@ def figure7():
 
 
     # congruent nogo correct trials comparison
-    panel = 'G'
+    panel = 'g'
     axs = axmid[0,0]
     datanames = ['ME110','ME113','DT009','DT014','DT017','DT021','DT022','MT020_2']
     accuracies_nogocongr_all = []
@@ -5947,6 +6218,8 @@ def figure7():
     m = neph.smooth(accuracies_nogocongr_all[:,:,1,0,1,0].mean(axis=0),mode='same')
     e = neph.smooth(accuracies_nogocongr_all[:,:,1,0,1,0].std(axis=0)/np.sqrt(accuracies_nogocongr_all.shape[0]) + accuracies_nogocongr_all[:,:,1,2,1,0].mean(axis=0),mode='same')
 
+    sourcedata = np.c_[times,m]
+
     axs.plot(times,m,color='red',lw=3,alpha=0.9,label='correct nogo congruent')
     axs.fill_between(times,m-e,m+e,color='red',alpha=0.2)
 
@@ -5954,6 +6227,10 @@ def figure7():
     e = neph.smooth(accuracies_all[:,:,0].std(axis=0)/np.sqrt(accuracies_all.shape[0]) + accuracies_all[:,:,2].mean(axis=0),mode='same')
     axs.plot(times,m,color='mediumvioletred',lw=3,alpha=0.9,label='all')
     axs.fill_between(times,m-e,m+e,color='mediumvioletred',alpha=0.2)
+
+    sourcedata = np.c_[sourcedata,m]
+    sourcedata = pd.DataFrame(sourcedata,columns=['time [ms]','correct nogo congruent','all'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_7'+panel+'.csv',index=False)
 
     axs.legend(frameon=False)
     figs.setxt(axs)
@@ -6029,7 +6306,7 @@ def figure7():
 
 
     # display original and reconstructed movements
-    panel = 'H'
+    panel = 'h'
     axs = axmid[0,1]
     axs.axis('off')
     figs.labelaxis(axs,panel)
@@ -6071,6 +6348,9 @@ def figure7():
     axs.plot(np.arange(n_frames),m, '.-', color='black',lw=1,alpha=0.9)
     axs.fill_between(np.arange(n_frames),m-e,m+e,color='black',alpha=0.2)
 
+    sourcedata = pd.DataFrame(np.c_[np.arange(n_frames),m],columns=['frame','mean'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_7'+panel+'.csv',index=False)
+
     axs.set_xticks([])
     axs.set_xlim(-0.5,PCs.shape[0]-0.5)
     axs.set_ylim(0.8,1.4)
@@ -6110,7 +6390,7 @@ def figure7():
 
 
 
-    panel = 'I'
+    panel = 'i'
     axs = axbot[0,0]
     for mx in range(2):
         color = ['rebeccapurple','mediumvioletred'][mx]
@@ -6123,6 +6403,10 @@ def figure7():
             e = accuracyall[:,1,2]
         axs.plot(times, m, color=color, lw=3, label=label)
         axs.fill_between(times, m-e, m+e, color=colors, alpha=0.3)
+
+    sourcedata = np.c_[times,accuracies[:,1,0,prop_disp,th_disp],accuracyall[:,1,0]]
+    sourcedata = pd.DataFrame(sourcedata,columns=['time [ms]','stationary trials','all trials'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_7'+panel+'.csv',index=False)
 
     figs.setxt(axs)
     axs.set_ylim(0.45,1.05)
@@ -6142,16 +6426,21 @@ def figure7():
 
 
 
-    panel = 'J'
+    panel = 'j'
     axs = axbot[0,1]
     colors = plt.cm.viridis( np.linspace(0, 0.8, n_proportions) )
+
+    sourcedata = thresholds
     for px,pr in enumerate(proportions):
 
         m = accuracies[:,1,0,px,:].mean(axis=0)
         e = accuracies[:,1,2,px,:].mean(axis=0)
         axs.plot(thresholds, m, color=colors[px], lw=1, label='prop=%4.2f'%proportions[px])
         axs.fill_between(thresholds, m-e, m+e, color=colors[px], alpha=0.3)
-
+        sourcedata = np.c_[sourcedata,m]
+    
+    sourcedata = pd.DataFrame(sourcedata,columns=['threshold [AU]']+['prop=%4.2f'%pr for pr in proportions])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_7'+panel+'.csv',index=False)
 
     # show the point in the grid on the first subplot
     axs.plot(thresholds[th_disp],accuracies[:,1,0,prop_disp,th_disp].mean(axis=0),'o',color='rebeccapurple')
@@ -6173,7 +6462,7 @@ def figure7():
 
 
 
-    panel = 'K'
+    panel = 'k'
     axs = axbot[0,2]
     accuracies_levels
 
@@ -6181,7 +6470,8 @@ def figure7():
     e = np.nanmean(accuracies_levels[:,1,2,:,0], axis=0)
     axs.plot(levels, m, color='mediumvioletred', lw=1)
     axs.fill_between(levels, m-e, m+e, color='mediumvioletred', alpha=0.3)
-
+    sourcedata = pd.DataFrame(np.c_[levels,m],columns=['level [AU]','accuracy'])
+    sourcedata.to_csv(resultpath+'sourcedata/'+'sourcedata_Fig_7'+panel+'.csv',index=False)
 
     axs.set_ylim(0.45,1.05)
     figs.plottoaxis_chancelevel(axs,chances[dn])
@@ -6441,7 +6731,7 @@ def supplementaryfigure1():    # drift control
 
     if 1:        # actual figure display
     
-            panels = ['A','B','C','D']
+            panels = ['a','b','c','d']
             ind = [[0,0,1,1],[0,3,3,1]]
             titles = ['good','good','drifting','drifting']
             
@@ -6546,7 +6836,7 @@ def supplementaryfigure2():
     fig,ax = plt.subplots(2,2,figsize=(2*10,2*8))
 
     axs = ax[0,0]
-    panel = 'A'
+    panel = 'a'
 
     figs.plottoaxis_decoderrocauc(acrossdecoders_full[n_cherry][:2],axs,colorlist=['','black'],plottrain=False,onlysem=True,smooth=[1])       # plot the performance
     figs.plottoaxis_decoderrocauc(acrossdecoders_broad[n_cherry][:2],axs,colorlist=['','mediumvioletred'],plottrain=False,onlysem=True,smooth=[1])       # plot the performance
@@ -6565,7 +6855,7 @@ def supplementaryfigure2():
 
 
     axs = ax[0,1]
-    panel = 'B'
+    panel = 'b'
 
     tpidx = np.array([0,150,300,450,596],dtype=np.int16)
     A = np.array([ acrossdecoders_broad[n][1][:,0].squeeze() for n in range(len(datanames)) ])
@@ -6596,7 +6886,7 @@ def supplementaryfigure2():
     
     
     axs = ax[1,0]
-    panel = 'C'
+    panel = 'c'
 
     figs.plottoaxis_decoderrocauc(acrossdecoders_full[n_cherry][:2],axs,colorlist=['','black'],plottrain=False,onlysem=True,smooth=[1])       # plot the performance
     figs.plottoaxis_decoderrocauc(acrossdecoders_narrow[n_cherry][:2],axs,colorlist=['','mediumvioletred'],plottrain=False,onlysem=True,smooth=[1])       # plot the performance
@@ -6615,7 +6905,7 @@ def supplementaryfigure2():
 
 
     axs = ax[1,1]
-    panel = 'D'
+    panel = 'd'
 
     tpidx = np.array([0,150,300,450,596],dtype=np.int16)
     A = np.array([ acrossdecoders_narrow[n][1][:,0].squeeze() for n in range(len(datanames)) ])
@@ -6700,7 +6990,7 @@ def supplementaryfigure3():
     
     
     
-    panels = ['A','C']
+    panels = ['a','c']
     
     dn = datanames[n_cherry]
         
@@ -6744,7 +7034,7 @@ def supplementaryfigure3():
 
 
 
-    panels = ['B','D']
+    panels = ['b','d']
     
     bars_full = [] # will be (mice,projections,mean-sem)
     for n,dn in enumerate(datanames):
@@ -6869,7 +7159,7 @@ def supplementaryfigure4():
 
     variablecolors = ['navy','mediumvioletred']    
     
-    panels = ['A','B','C']
+    panels = ['a','b','c']
 
     # determine partial correlation between pre on and n_neurons
     # variables will be pre context, on context and number of neurons
@@ -7173,7 +7463,7 @@ def supplementaryfigure5():
     
 
     # decoder trajectories
-    panel = 'A'
+    panel = 'a'
     dn = singleanimal
     for bx,vartimecourse in enumerate([visualtimecourse]):
     
@@ -7197,7 +7487,7 @@ def supplementaryfigure5():
 
 
     timecourselabels = ['PRE','ON\nearly','ON\nlate','POST']
-    panel = 'B'
+    panel = 'b'
     bx = 0
     axs = ax[0+bx,1]        # first audio, below context
     ci = timegroups[:,bx,:].std(axis=0)*2/np.sqrt(len(datanames))
@@ -7231,7 +7521,7 @@ def supplementaryfigure5():
 
 
     # coefficients
-    panels = ['C','D']
+    panels = ['c','d']
 
     classnames = [[' 5000 Hz','10000 Hz'],['attend\naudio','attend\nvisual']]
 
@@ -7268,7 +7558,7 @@ def supplementaryfigure5():
 
 
     # SUBSPACES
-    panel = 'E'
+    panel = 'e'
     
     n_showmice = datanamesefg.index(singleanimal)
     basisaspects = ['audio','context']
@@ -7381,7 +7671,7 @@ def supplementaryfigure5():
 
 
 
-    panel = 'F'
+    panel = 'f'
 
     # polar histogram of bases visual and context in all anumals
     
@@ -7437,7 +7727,7 @@ def supplementaryfigure5():
 
 
     # dynamics of dbnv angles between audio and context along the trial, all mice
-    panel = 'G'
+    panel = 'g'
     
     pair = [1,2]
     axs = ax[1,2]
@@ -7485,7 +7775,7 @@ def supplementaryfigure5():
 
 
     # for deoiding audio from both contexts
-    panel = 'H'
+    panel = 'h'
 
     times = np.arange(-1500,4510,10)[:596]*pq.ms
 
@@ -7765,7 +8055,7 @@ def supplementaryfigure6():
 
 
         # SUBSPACES for stimuli vs. choice
-        panel = ['A','B'][taskx]
+        panel = ['a','b'][taskx]
         
         n_showmice = datanames.index('MT020_2')
         basisaspects = [task,'choice']
@@ -7926,7 +8216,7 @@ def supplementaryfigure6():
 
 
 
-        panel = ['C','D'][taskx]
+        panel = ['c','d'][taskx]
 
         # polar histogram of bases visual/audio and context in all animals
         
@@ -8112,8 +8402,8 @@ def supplementaryfigure8():
 
 
 
-    figs.labelaxis(ax[0,0],'B',x=-0.3,y=1.1,fontsize=48)
-    figs.labelaxis(ax[1,0],'C',x=-0.3,fontsize=48)
+    figs.labelaxis(ax[0,0],'b',x=-0.3,y=1.1,fontsize=48)
+    figs.labelaxis(ax[1,0],'c',x=-0.3,fontsize=48)
 
 
     fig.tight_layout()
@@ -8121,7 +8411,7 @@ def supplementaryfigure8():
 
     save = 0 or globalsave
     if save:
-        fig.savefig(resultpath+'Supp8B,C_bodyparts-rois,equalization,histograms'+ext)
+        fig.savefig(resultpath+'Supp8b,c_bodyparts-rois,equalization,histograms'+ext)
 
     
     return
@@ -8159,10 +8449,10 @@ def main():
     figure7()     # locomotion-invariance
 
 
-    # statshelper()
+    statshelper()
 
 
-    # supplementaryfigure1()    # drift control
+    supplementaryfigure1()    # drift control
     supplementaryfigure2()    # show that without VIP interneurons, context is still decodable in PV cells only
     supplementaryfigure3()    # show that decoding from visual DV and motion VV, contextual information is limited.
     supplementaryfigure4()    # control for number of neurons
